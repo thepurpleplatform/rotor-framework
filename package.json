@@ -1,6 +1,6 @@
 {
 	"name": "rotor-framework",
-	"version": "0.9.0",
+	"version": "0.9.1",
 	"description": "Roku toolkit library providing a ViewBuilder, full UI lifecycle with focus handling and many core features, plus MVI-based state management.",
 	"author": "Balázs Molnár",
 	"license": "Apache-2.0",
