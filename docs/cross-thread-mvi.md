@@ -366,18 +366,24 @@ class MyViewModel extends Rotor.ViewModel
 end class
 ```
 
-**Important**: Render thread dispatchers are technically accessible from task threads (via the same dispatcher pattern), but this is **rarely recommended**. The standard pattern is task thread dispatchers accessed by render thread, not the reverse.
+**Cross-thread dispatch is bidirectional and rendezvous-free.** A render-owned dispatcher is fully reachable from a task thread: a task reducer can `m.dispatchTo("layout", intent)` a render-owned dispatcher (task→render), just as the render thread dispatches to task-owned dispatchers (render→task). Task→task (between two different task threads) works the same way. In every case you call `dispatch` / `dispatchTo` identically regardless of where the target lives; the framework routes the intent to the owning thread, reduces it there, and syncs state back to listeners on every subscribed thread.
 
-Use render thread owned dispatchers for:
+Choose ownership by where the state naturally lives, not by which threads consume it:
+
+Use **render-owned** dispatchers for state the UI mutates locally, where render-thread reads/writes should stay synchronous and rendezvous-free:
 - Complex component internal state management
 - Cross-component UI state coordination
-- Local UI state that never needs task thread processing
+- Local UI state (still fully dispatchable from a task when needed)
+
+Use **task-owned** dispatchers for business/shared state, async work (API calls, timers), and anything driven from the task thread.
+
+> **Note on timing:** cross-thread dispatch is asynchronous. After dispatching to a dispatcher owned by another thread, `getState()` on the calling thread is not immediately updated — state is read-your-writes only on the owning thread and propagates to other threads one cycle later via the listener/sync channel.
 
 ## Key Principles
 
-### State Mutations in Task Thread
+### State Mutations Happen Only in the Reducer
 
-All state changes occur in the task thread through the reducer. The render thread never modifies state directly.
+All state changes go through the reducer and run on the dispatcher's **owning thread** — the task thread for task-owned dispatchers, the render thread for render-owned dispatchers. Consumers never modify state directly; they dispatch intents. For the common case of task-owned business state, this means all mutations happen on the task thread and the render thread only reads/subscribes.
 
 ### Middleware for Async Operations
 

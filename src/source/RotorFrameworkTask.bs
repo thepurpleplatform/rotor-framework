@@ -148,6 +148,34 @@ namespace Rotor
         end sub
 
         ' ---------------------------------------------------------------------
+        ' sendIntent - Routes a cross-thread intent dispatch (task → render thread)
+        '
+        ' Called by DispatcherCrossThread.dispatch() on the task thread. A task cannot
+        ' write a foreign (render-owned) node's rotorSync field without a blocking
+        ' rendezvous, so the intent is relayed to the render thread via the
+        ' rendezvous-free __rotor__ channel (CopyMessage), symmetric with
+        ' sendStateToRender. The render thread resolves the target dispatcher by id and
+        ' re-dispatches locally (see RotorFramework.handleIntentMessage). Enables
+        ' task → render and task → task intent dispatch.
+        '
+        ' Thread-neutral counterpart of Framework.sendIntent (render → task). Same
+        ' signature so DispatcherCrossThread.dispatch() works unchanged from either
+        ' thread. The node parameter is unused on the task side — the render thread
+        ' resolves the target from its own registry by dispatcherId.
+        '
+        ' @param {object} node - Target dispatcher state node (unused on task side)
+        ' @param {string} dispatcherId - Target dispatcher identifier
+        ' @param {object} intent - Intent to dispatch
+        '
+        public sub sendIntent(node as object, dispatcherId as string, intent as object)
+            m.renderQueue.CopyMessage(Rotor.Const.ROTOR_QUEUE_ID, {
+                type: Rotor.Const.RouterMsgType.INTENT,
+                dispatcherId: dispatcherId,
+                intent: intent
+            })
+        end sub
+
+        ' ---------------------------------------------------------------------
         ' connectDispatcher - Creates a new dispatcher facade connection by ID
         '
         ' Each call creates a unique facade with its own listenerId and scope binding.

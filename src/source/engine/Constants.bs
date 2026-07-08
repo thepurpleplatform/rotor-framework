@@ -72,6 +72,7 @@ namespace Rotor
         enum RouterMsgType
             STATE = "rotor_state"
             SYNC = "rotor_sync"
+            INTENT = "rotor_intent"
         end enum
 
         const ROTOR_QUEUE_ID = "__rotor__"

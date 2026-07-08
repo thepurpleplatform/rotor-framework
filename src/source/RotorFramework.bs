@@ -518,22 +518,51 @@ namespace Rotor
             dispatcherInstance.notifyListeners(data.state)
         end sub
 
+        ' ---------------------------------------------------------------------
+        ' handleIntentMessage - Re-dispatches a task-relayed intent on the render thread
+        '
+        ' Called by messageCallback when an INTENT message arrives on __rotor__ (sent
+        ' by FrameworkTask.sendIntent). A task thread cannot write a foreign
+        ' (render-owned) node without a blocking rendezvous, so it relays the intent
+        ' here; the render thread resolves the target dispatcher from its own registry
+        ' and dispatches locally via that instance:
+        '   - render-owned dispatcher (DispatcherOriginal) → local reduce
+        '   - task-owned dispatcher   (DispatcherCrossThread) → sendIntent → rotorSync
+        '     write on the render-owned task node (render → task, no rendezvous)
+        ' Closes the task → render and task → task dispatch legs with no task → foreign write.
+        '
+        ' @param {object} data - { dispatcherId, intent }
+        '
+        sub handleIntentMessage(data as object)
+            dispatcherInstance = m.dispatcherProvider.get(data.dispatcherId)
+            if dispatcherInstance = invalid
+                print "[ROTOR][ROUTER][WARNING] relayed intent dropped — unknown dispatcher '" ; data.dispatcherId ; "'"
+                return
+            end if
+            dispatcherInstance.dispatch(data.intent)
+        end sub
+
         ' =====================================================================
         ' ROUTER — Render → Task (outbound)
         ' =====================================================================
 
         ' ---------------------------------------------------------------------
-        ' sendIntentToTask - Routes intent dispatch to the task thread
+        ' sendIntent - Routes a cross-thread intent dispatch (render → task thread)
         '
-        ' Called by DispatcherCrossThread.dispatch(). Sends via rotorSync field
-        ' on the task node — task thread observes via observeFieldScopedEx (port,
-        ' no rendezvous).
+        ' Called by DispatcherCrossThread.dispatch() on the render thread. Writes the
+        ' intent onto the target task node's rotorSync field — the task thread observes
+        ' it via observeFieldScopedEx (port, no rendezvous) and re-dispatches locally.
+        '
+        ' Thread-neutral counterpart of FrameworkTask.sendIntent (which relays
+        ' task → render via the render queue). Both share this signature so
+        ' DispatcherCrossThread.dispatch() is thread-agnostic — the single call site
+        ' works from either thread.
         '
         ' @param {object} taskNode - Task node (stateNode of the cross-thread dispatcher)
         ' @param {string} dispatcherId - Target dispatcher identifier
         ' @param {object} intent - Intent to dispatch
         '
-        public sub sendIntentToTask(taskNode as object, dispatcherId as string, intent as object)
+        public sub sendIntent(taskNode as object, dispatcherId as string, intent as object)
             taskNode.setField("rotorSync", {
                 type: Rotor.Const.ThreadSyncType.DISPATCH,
                 payload: { dispatcherId: dispatcherId, intent: intent }
@@ -610,7 +639,8 @@ namespace Rotor
     ' messageCallback - Single router callback for all task→render messages
     '
     ' Registered via AddMessageHandler on the __rotor__ channel.
-    ' Routes based on data.type: STATE → handleStateMessage, SYNC → sync protocol.
+    ' Routes based on data.type: STATE → handleStateMessage, INTENT → handleIntentMessage
+    ' (task-relayed cross-thread dispatch), SYNC → sync protocol.
     '
     ' @param {object} data - Message payload
     ' @param {object} info - Queue metadata (info.message_id = ROTOR_QUEUE_ID)
@@ -621,6 +651,8 @@ namespace Rotor
 
         if data.type = Rotor.Const.RouterMsgType.STATE
             framework.handleStateMessage(data)
+        else if data.type = Rotor.Const.RouterMsgType.INTENT
+            framework.handleIntentMessage(data)
         else if data.type = Rotor.Const.RouterMsgType.SYNC
             taskNode = data.taskNode
             if data.syncType = Rotor.Const.ThreadSyncType.TASK_SYNCING

@@ -15,10 +15,10 @@ core:
 api:
   createDispatcher:
     syntax: "Rotor.createDispatcher(name, model, reducer)"
-    description: "Register dispatcher with unique name, model, reducer. Does NOT return a value (it is a sub, not a function). Use connectDispatcher(name) to get a reference after creation. Task thread dispatchers are globally accessible. Render thread dispatchers are local-use only."
+    description: "Register dispatcher with unique name, model, reducer. Does NOT return a value (it is a sub, not a function). Use connectDispatcher(name) to get a reference after creation. Task thread dispatchers are globally accessible. Render thread dispatchers live on the render thread (synchronous, rendezvous-free local reads/writes) and are ALSO reachable cross-thread — a task can dispatch to a render-owned dispatcher (task->render)."
   dispatch:
     syntax: "dispatcher.dispatch({ type: intentType, payload: data })"
-    description: "Send intents from any thread; payload optional. Triggers middleware then reducer."
+    description: "Send intents from any thread; payload optional. Triggers middleware then reducer. Cross-thread dispatch is bidirectional and rendezvous-free: render->task, task->render, and task->task (different task threads) all route through the framework router. You call dispatch/dispatchTo the same way regardless of where the target dispatcher lives; when the target is on another thread the intent is delivered asynchronously (state is read-your-writes only on the owning thread; cross-thread getState right after a dispatch may be one cycle stale)."
   getState:
     syntax: "dispatcher.getState(sub(props, state) ... end sub)"
     description: "Callback receives current state snapshot; used for binding props. Executes callback with current state once. In reducers, use m.getState() helper to access current state directly."
@@ -36,13 +36,14 @@ api:
     description: "Lifecycle hook called after dispatcher is fully registered. Override to perform initialization that requires dispatcher to be set up (e.g., registering broadcast source objects like roDeviceInfo)."
 state:
   renderThread:
-    - "dispatch intent to task thread"
+    - "dispatch intent to task thread (render->task) OR to a render-owned dispatcher (local)"
     - "listener callbacks receive state updates"
     - "UI update via render/refresh"
   taskThread:
     - "middleware execution (async operations, logging)"
     - "reducer state update (synchronous mutations)"
     - "sync back to listeners on render thread"
+    - "dispatch to another dispatcher via m.dispatchTo(id, intent): own task (local, synchronous), render-owned (task->render), or a different task (task->task) — all rendezvous-free"
 examples:
   modelDefinition: |
     class CounterModel extends Model
@@ -124,7 +125,7 @@ patterns:
     - "Async HTTP middleware using registerSourceObject('roUrlTransfer') — framework creates object, sets port, routes response to onSourceEvent()."
   reducer:
     - "Intent types INCREMENT, COUNT_LOADED mutating count and lastUpdated."
-    - "Reducer returns modified state object. All mutations happen in reducer on task thread."
+    - "Reducer returns modified state object. All mutations happen in the reducer, on the dispatcher's owning thread (task thread for task-owned dispatchers, render thread for render-owned ones). In this task-owned example that is the task thread."
     - "Use m.getState() helper in reducers to access current state directly without callback."
   sourceObjects:
     - "Call m.registerSourceObject('roUrlTransfer') for identity-based objects — framework creates new instance per call, sets port, routes by GetSourceIdentity(). Returns the created object."
@@ -149,7 +150,7 @@ patterns:
     - "m.unregisterSourceObject(sourceObject) - unregister a source object"
   dispatcherAccessibility:
     taskThread: "Dispatchers created via Rotor.createDispatcher() on task thread are globally accessible from render thread and other task threads."
-    renderThread: "Dispatchers created on render thread are technically accessible but rarely recommended for cross-thread use. Use for complex component internal state or local UI coordination."
+    renderThread: "Dispatchers created on render thread are ideal for render-local UI state (reads/writes are synchronous and rendezvous-free on the render thread). They are ALSO reachable cross-thread: a task reducer can m.dispatchTo() a render-owned dispatcher (task->render). Prefer render-owned dispatchers for state the UI mutates locally; targeting them from a task is fully supported and rendezvous-free."
 resolution:
   priority: "Reducer resolves intents after middleware completes. Listeners react post-update. Middleware can halt reducer by returning invalid."
 threadFlow:
@@ -161,8 +162,9 @@ threadFlow:
     - "State synced back to listeners"
     - "Listener callbacks fire on render thread"
     - "UI updates via render/refresh"
+  directions: "The sequence above is the common render->task->render round-trip, but routing is direction-agnostic and rendezvous-free. A task reducer can dispatch to a render-owned dispatcher (task->render) or to another task's dispatcher (task->task); the intent is routed to the owning thread, reduced there, and state syncs back to listeners on every subscribed thread. Reduce always runs on the dispatcher's owning thread."
 rules:
-  - "Create dispatchers in task thread for global access; render-thread dispatchers are local-use only."
+  - "Create dispatchers on the task thread for shared/business state; create render-owned dispatchers for render-local UI state. Both are reachable cross-thread (dispatch is bidirectional: render->task, task->render, task->task), so choose ownership by where the state naturally lives, not by whether other threads need it."
   - "All state mutations happen in reducers on task thread. Never mutate state in render thread."
   - "Use middleware for async work; return invalid to stop reducer execution."
   - "Register source objects with m.registerSourceObject(typeName). Framework creates object, sets port, handles routing (identity-based or broadcast singleton)."
@@ -173,7 +175,7 @@ rules:
   - "Handle all state mutations in reducer, never in middleware."
 pitfalls:
   - "Avoid mutating state directly in render thread. Always dispatch intents."
-  - "Render-thread dispatchers should rarely be consumed cross-thread."
+  - "Cross-thread dispatch is asynchronous: after m.dispatchTo() to a dispatcher owned by another thread, do NOT expect getState() to reflect it immediately on the calling thread. State is read-your-writes only on the owning thread; elsewhere it updates one cycle later via the listener/sync channel."
   - "Don't perform state mutations in middleware; middleware is for async operations only."
   - "Forgetting to call m.registerSourceObject(typeName) before async operations prevents framework event routing."
   - "Forgetting to remove listeners can cause memory leaks. Use once: true for one-time operations."

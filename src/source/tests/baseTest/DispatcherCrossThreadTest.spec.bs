@@ -10,26 +10,35 @@ namespace tests
         deregisteredId as string
         addedObservers as object
         removedObservers as object
+        relayedIntents as object
 
         protected override function beforeEach()
             m.addedObservers = []
             m.removedObservers = []
+            m.relayedIntents = []
             m.deregisteredId = ""
 
             m.frameworkStub = {
                 addedObservers: m.addedObservers,
                 removedObservers: m.removedObservers,
+                relayedIntents: m.relayedIntents,
                 addObserver: sub(fieldId, node)
                     m.addedObservers.push({ fieldId: fieldId, node: node })
                 end sub,
                 removeObserver: sub(fieldId, node)
                     m.removedObservers.push({ fieldId: fieldId, node: node })
                 end sub,
-                sendIntentToTask: sub(taskNode, dispatcherId, intent)
-                    taskNode.setField("rotorSync", {
-                        type: Rotor.Const.ThreadSyncType.DISPATCH,
-                        payload: { dispatcherId: dispatcherId, intent: intent }
-                    })
+                ' Thread-neutral router entry point. Records every relayed intent so
+                ' both dispatch directions can be asserted, and mimics the render-side
+                ' Framework by serializing onto the node's rotorSync field when present.
+                sendIntent: sub(node, dispatcherId, intent)
+                    m.relayedIntents.push({ dispatcherId: dispatcherId, intent: intent })
+                    if node <> invalid and node.hasField("rotorSync")
+                        node.setField("rotorSync", {
+                            type: Rotor.Const.ThreadSyncType.DISPATCH,
+                            payload: { dispatcherId: dispatcherId, intent: intent }
+                        })
+                    end if
                 end sub,
                 dispatcherProvider: {
                     mockDispatchers: {},
@@ -61,6 +70,35 @@ namespace tests
             payload = node.getField("rotorSync")
             m.assertEqual(payload.type, Rotor.Const.ThreadSyncType.DISPATCH)
             m.assertEqual(payload.payload.dispatcherId, "renderDispatch")
+        end function
+
+        @it("dispatch from a TASK-thread dispatcher relays through the framework router (task → render)")
+        function dispatch_from_task_thread_relays_via_router()
+            ' Regression guard: a task-thread cross-thread dispatcher used to call a
+            ' render-only router method that does not exist on the task framework,
+            ' crashing mid-reduce. dispatch() must instead delegate to the shared,
+            ' thread-neutral sendIntent so the task → render (and task → task) leg works.
+            node = CreateObject("roSGNode", "ContentNode")
+            dispatcher = new Rotor.DispatcherCrossThread("layout", node, Rotor.Const.ThreadType.TASK)
+
+            dispatcher.dispatch({ type: "SHOW_TOAST", payload: { text: "hi" } } as Intent)
+
+            m.assertEqual(m.relayedIntents.Count(), 1)
+            m.assertEqual(m.relayedIntents[0].dispatcherId, "layout")
+            m.assertEqual(m.relayedIntents[0].intent.type, "SHOW_TOAST")
+        end function
+
+        @it("dispatch surfaces a loud error instead of crashing when the router method is missing")
+        function dispatch_handles_missing_router_method()
+            ' Hardening: if the framework router lacks sendIntent, dispatch must return
+            ' gracefully (loud error) rather than throw and strand the caller's cycle.
+            GetGlobalAA().rotor_framework_helper = { frameworkInstance: {} }
+            node = CreateObject("roSGNode", "ContentNode")
+            dispatcher = new Rotor.DispatcherCrossThread("orphan", node, Rotor.Const.ThreadType.TASK)
+
+            dispatcher.dispatch({ type: "PING", payload: {} } as Intent)
+
+            m.assertEqual(m.relayedIntents.Count(), 0) ' nothing relayed, no throw
         end function
 
         @it("addListener on render thread stores listener without setting up observer")

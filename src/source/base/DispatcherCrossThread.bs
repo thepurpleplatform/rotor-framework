@@ -10,7 +10,8 @@ namespace Rotor
     ' or vice versa).
     '
     ' Responsibilities:
-    '   - Delegates intent dispatch to RotorFramework router (sendIntentToTask)
+    '   - Delegates intent dispatch to the framework router (sendIntent), which is
+    '     thread-agnostic: render → task writes rotorSync, task → render relays via queue
     '   - Render thread: receives state via roRenderThreadQueue single __rotor__ channel
     '     routed through RotorFramework.handleStateMessage → notifyListeners
     '   - Task thread: observes state node field via observeFieldScopedEx
@@ -18,8 +19,10 @@ namespace Rotor
     '   - Auto cleanup when last listener is removed
     '
     ' MVI Cross-Thread Flow:
-    '   Render Thread: dispatch(intent) → RotorFramework.sendIntentToTask → rotorSync field → Task Thread
-    '   Task Thread: reduce state → FrameworkTask.sendStateToRender → __rotor__ queue → Render Thread
+    '   Render → Task dispatch: dispatch(intent) → Framework.sendIntent → rotorSync field → Task Thread
+    '   Task → Render dispatch: dispatch(intent) → FrameworkTask.sendIntent → __rotor__ queue
+    '     → RotorFramework.handleIntentMessage → local dispatch on target dispatcher
+    '   State delivery: reduce state → FrameworkTask.sendStateToRender → __rotor__ queue → Render Thread
     ' =====================================================================
     class DispatcherCrossThread extends DispatcherCore
 
@@ -48,14 +51,25 @@ namespace Rotor
         ' =============================================================
 
         ' ---------------------------------------------------------------------
-        ' dispatch - Sends intent to task thread via RotorFramework router
+        ' dispatch - Relays intent to the other thread via the framework router
+        '
+        ' Thread-agnostic: delegates to frameworkInstance.sendIntent, which each
+        ' framework implements for its own direction — render Framework writes the
+        ' task node's rotorSync (render → task), task FrameworkTask relays via the
+        ' render queue (task → render). This single call site therefore works from
+        ' either thread. A missing router method is surfaced as a loud error instead
+        ' of crashing mid-reduce (which would strand the caller's dispatch cycle).
         '
         sub dispatch(intent as Intent)
             if intent?.payload <> invalid and intent.payload.Count() > 1 and intent.payload = invalid
                 throw "[WARNING] Intent payload is invalid."
             end if
             frameworkInstance = GetGlobalAA().rotor_framework_helper.frameworkInstance
-            frameworkInstance.sendIntentToTask(m.stateNode, m.dispatcherId, intent)
+            if frameworkInstance = invalid or not Rotor.Utils.isFunction(frameworkInstance.sendIntent)
+                print "[ROTOR][DISPATCHER][ERROR] cross-thread dispatch unavailable for '" ; m.dispatcherId ; "' — framework router 'sendIntent' missing"
+                return
+            end if
+            frameworkInstance.sendIntent(m.stateNode, m.dispatcherId, intent)
         end sub
 
         ' =============================================================
