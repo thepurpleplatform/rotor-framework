@@ -259,6 +259,33 @@ namespace Rotor
         end sub
 
         ' ---------------------------------------------------------------------
+        ' registerNodeObserver - Routes an SG node's field events to this reducer (task thread)
+        '
+        ' For task-created SceneGraph nodes that deliver results via observed fields
+        ' (e.g. the ChannelStore node's requestStatus). The framework observes the field
+        ' on its port and routes the roSGNodeEvent to this reducer's onSourceEvent.
+        ' The fieldId must not collide with a dispatcher id.
+        '
+        ' @param {object} node - SG node created on this task thread
+        ' @param {string} fieldId - The node field to observe (e.g. "requestStatus")
+        '
+        sub registerNodeObserver(node as object, fieldId as string)
+            frameworkInstance = GetGlobalAA().rotor_framework_helper.frameworkInstance
+            frameworkInstance.registerNodeObserver(node, fieldId, m.dispatcherId)
+        end sub
+
+        ' ---------------------------------------------------------------------
+        ' unregisterNodeObserver - Removes an SG-node field observer registration
+        '
+        ' @param {object} node - The observed SG node
+        ' @param {string} fieldId - The observed field
+        '
+        sub unregisterNodeObserver(node as object, fieldId as string)
+            frameworkInstance = GetGlobalAA().rotor_framework_helper.frameworkInstance
+            frameworkInstance.unregisterNodeObserver(node, fieldId)
+        end sub
+
+        ' ---------------------------------------------------------------------
         ' onSourceEvent - Callback for source object events
         '
         ' @param {object} msg - Raw message from source object (roUrlEvent, roDeviceInfoEvent, etc.)

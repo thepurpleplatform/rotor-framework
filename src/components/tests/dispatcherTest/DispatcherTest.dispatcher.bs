@@ -136,5 +136,75 @@ namespace test
         Rotor.createDispatcher("transferDispatcher", new test.TransferTestModel(), new test.TransferTestReducer())
     end sub
 
+    ' MARK: Node Observer Test - SG-node field events routed via registerNodeObserver
+
+    class NodeObserverTestModel extends Rotor.Model
+        state = {
+            observedCount: 0,
+            lastStatus: "",
+            unregistered: false
+        }
+    end class
+
+    class NodeObserverTestReducer extends Rotor.Reducer
+
+        node as object
+        oldNode as object
+        secondNode as object
+        fieldId = "requestStatus"
+        secondFieldId = "orderStatus"
+
+        override sub onCreateDispatcher()
+            ' Task-owned SG node that reports results via an observed field
+            ' (mirrors the SceneGraph ChannelStore node's requestStatus field).
+            m.node = CreateObject("roSGNode", "ContentNode")
+            m.node.addField(m.fieldId, "string", true)
+            m.registerNodeObserver(m.node, m.fieldId)
+
+            ' A second observer left registered for the whole lifetime — it is never
+            ' unregistered, so framework destroy() must clean it up (exercises that path).
+            m.secondNode = CreateObject("roSGNode", "ContentNode")
+            m.secondNode.addField(m.secondFieldId, "string", true)
+            m.registerNodeObserver(m.secondNode, m.secondFieldId)
+        end sub
+
+        override sub onSourceEvent(msg as object)
+            ' Routed roSGNodeEvent for the observed field (same contract as source objects)
+            m.dispatch({
+                type: IntentTypes.NODE_STATUS_EVENT,
+                payload: { status: msg.getData() }
+            })
+        end sub
+
+        override function reducer(state, intent)
+            if intent.type = IntentTypes.NODE_STATUS_EVENT
+                state.lastStatus = intent.payload.status
+                state.observedCount++
+            else if intent.type = IntentTypes.SET_NODE_STATUS
+                ' Changing the observed field fires the node observer -> onSourceEvent
+                m.node.setField(m.fieldId, intent.payload.status)
+            else if intent.type = IntentTypes.SET_OLD_NODE_STATUS
+                ' Change the field on the pre-rebind node; must NOT route after rebind
+                if m.oldNode <> invalid then m.oldNode.setField(m.fieldId, intent.payload.status)
+            else if intent.type = IntentTypes.REBIND_NODE_OBSERVER
+                ' Re-register the same field onto a fresh node — the framework must drop
+                ' the previous node's observer so only the new node routes.
+                m.oldNode = m.node
+                m.node = CreateObject("roSGNode", "ContentNode")
+                m.node.addField(m.fieldId, "string", true)
+                m.registerNodeObserver(m.node, m.fieldId)
+            else if intent.type = IntentTypes.UNREGISTER_NODE_OBSERVER
+                m.unregisterNodeObserver(m.node, m.fieldId)
+                state.unregistered = true
+            end if
+            return state
+        end function
+
+    end class
+
+    sub createNodeObserverDispatcher()
+        Rotor.createDispatcher("nodeObserverDispatcher", new test.NodeObserverTestModel(), new test.NodeObserverTestReducer())
+    end sub
+
 end namespace
 

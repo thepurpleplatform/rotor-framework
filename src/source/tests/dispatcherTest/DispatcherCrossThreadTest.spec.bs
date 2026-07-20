@@ -31,6 +31,8 @@ namespace tests
         eventCountAfterUnregister = 0
         baselineTickCount = 0
         countAfterUnregister = 0
+        baselineNodeCount = 0
+        countAfterNodeUnregister = 0
 
         protected override function setup()
             if m.fwInstance = invalid
@@ -238,6 +240,89 @@ namespace tests
 
                     ctx2.done()
                 end function, ctx, 2.0)
+            end function, m, 0.3)
+        end function
+
+        @describe("SG-node field event routing via registerNodeObserver")
+
+        @async()
+        @it("routes SG-node field events to reducer via registerNodeObserver and onSourceEvent")
+        function _()
+            nodeDispatcher = m.fwInstance.connectDispatcher("nodeObserverDispatcher")
+            m.assertNotInvalid(nodeDispatcher)
+
+            m.baselineNodeCount = nodeDispatcher.getState().observedCount
+
+            ' Change the observed field on the task thread -> fires the node observer
+            nodeDispatcher.dispatch({ type: IntentTypes.SET_NODE_STATUS, payload: { status: "OK" } })
+
+            rooibos_promises_internal_delay(function(ctx as dynamic)
+                nodeDispatcher = ctx.fwInstance.connectDispatcher("nodeObserverDispatcher")
+                state = nodeDispatcher.getState()
+                ctx.assertTrue(state.observedCount > ctx.baselineNodeCount, "onSourceEvent should route the SG-node field event")
+                ctx.assertEqual(state.lastStatus, "OK")
+                ctx.done()
+            end function, m, 0.5)
+        end function
+
+        @async()
+        @it("rebinding the same field to a new node drops the old node's observer")
+        function _()
+            nodeDispatcher = m.fwInstance.connectDispatcher("nodeObserverDispatcher")
+
+            ' Rebind the same field onto a fresh node — the old node's observer must be dropped
+            nodeDispatcher.dispatch({ type: IntentTypes.REBIND_NODE_OBSERVER })
+
+            rooibos_promises_internal_delay(function(ctx as dynamic)
+                nodeDispatcher = ctx.fwInstance.connectDispatcher("nodeObserverDispatcher")
+                ctx.baselineNodeCount = nodeDispatcher.getState().observedCount
+
+                ' Old node change must NOT route anymore
+                nodeDispatcher.dispatch({ type: IntentTypes.SET_OLD_NODE_STATUS, payload: { status: "OLD" } })
+
+                rooibos_promises_internal_delay(function(ctx2 as dynamic)
+                    nodeDispatcher = ctx2.fwInstance.connectDispatcher("nodeObserverDispatcher")
+                    state = nodeDispatcher.getState()
+                    ctx2.assertEqual(state.observedCount, ctx2.baselineNodeCount, "old node observer should be dropped after rebind")
+                    ctx2.assertNotEqual(state.lastStatus, "OLD", "old node event must not route after rebind")
+
+                    ' New node change must route
+                    nodeDispatcher.dispatch({ type: IntentTypes.SET_NODE_STATUS, payload: { status: "NEW" } })
+
+                    rooibos_promises_internal_delay(function(ctx3 as dynamic)
+                        nodeDispatcher = ctx3.fwInstance.connectDispatcher("nodeObserverDispatcher")
+                        state = nodeDispatcher.getState()
+                        ctx3.assertTrue(state.observedCount > ctx3.baselineNodeCount, "new node should route after rebind")
+                        ctx3.assertEqual(state.lastStatus, "NEW")
+                        ctx3.done()
+                    end function, ctx2, 0.3)
+                end function, ctx, 0.3)
+            end function, m, 0.3)
+        end function
+
+        @async()
+        @it("unregisters node observer and stops routing events")
+        function _()
+            nodeDispatcher = m.fwInstance.connectDispatcher("nodeObserverDispatcher")
+
+            ' Remove the observer registration on the task thread
+            nodeDispatcher.dispatch({ type: IntentTypes.UNREGISTER_NODE_OBSERVER })
+
+            rooibos_promises_internal_delay(function(ctx as dynamic)
+                nodeDispatcher = ctx.fwInstance.connectDispatcher("nodeObserverDispatcher")
+                state = nodeDispatcher.getState()
+                ctx.assertTrue(state.unregistered = true, "node observer should be unregistered")
+                ctx.countAfterNodeUnregister = state.observedCount
+
+                ' Change the field again — should NOT route anymore
+                nodeDispatcher.dispatch({ type: IntentTypes.SET_NODE_STATUS, payload: { status: "AGAIN" } })
+
+                rooibos_promises_internal_delay(function(ctx2 as dynamic)
+                    nodeDispatcher = ctx2.fwInstance.connectDispatcher("nodeObserverDispatcher")
+                    state = nodeDispatcher.getState()
+                    ctx2.assertEqual(state.observedCount, ctx2.countAfterNodeUnregister, "observedCount should not increase after unregister")
+                    ctx2.done()
+                end function, ctx, 0.3)
             end function, m, 0.3)
         end function
 
