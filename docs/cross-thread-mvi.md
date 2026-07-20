@@ -244,6 +244,41 @@ end sub
 - Broadcast objects are singletons — multiple reducers share one instance, eliminating duplicate event dispatching
 - No need to create separate Task nodes for async operations
 
+#### registerNodeObserver
+
+Routes a task-created **SceneGraph node's field events** to your reducer's `onSourceEvent()`. **Only available on the task thread.**
+
+Use this for SceneGraph nodes that report results through observed fields rather than a message port. The canonical case is the SceneGraph `ChannelStore` node (in-app purchases and subscriptions), which delivers results via fields like `requestStatus`. Such nodes do not support `SetMessagePort()`, so `registerSourceObject` does not apply to them.
+
+**Syntax:** `m.registerNodeObserver(node, fieldId)`
+
+- `node`: a SceneGraph node you created on the task thread.
+- `fieldId`: the field to observe (e.g. `"requestStatus"`).
+
+The framework observes the field and routes each change to your reducer's `onSourceEvent()` as a `roSGNodeEvent`:
+
+```brightscript
+override sub onCreateDispatcher()
+    m.store = CreateObject("roSGNode", "ChannelStore")
+    ' Route the node's requestStatus field events into this reducer
+    m.registerNodeObserver(m.store, "requestStatus")
+    ' Kick off a request (result arrives via the observed field)
+    m.store.command = "getCatalog"
+end sub
+
+override sub onSourceEvent(msg as object)
+    ' onSourceEvent may receive both source-object events and roSGNodeEvents —
+    ' discriminate by type (and/or msg.getField() for node events).
+    if type(msg) = "roSGNodeEvent" and msg.getField() = "requestStatus"
+        m.dispatch({ type: "CATALOG_READY", payload: { status: msg.getData() } })
+    end if
+end sub
+```
+
+**Cleanup:** Call `m.unregisterNodeObserver(node, fieldId)` when the observer is no longer needed. The framework also removes all remaining node observers automatically on `destroy()`.
+
+> **Important:** the `fieldId` must not collide with a dispatcher id. The node-observer registry takes precedence over the cross-thread state routing for that field, so a collision would shadow that dispatcher's state delivery. In debug builds the framework logs a warning if it detects a collision.
+
 ## Complete Example
 
 ### Task Thread Setup
@@ -403,6 +438,7 @@ Each dispatcher maintains one model as the single source of truth for its domain
 - Use clear, descriptive intent types
 - **Use `m.registerSourceObject(typeName)` for source objects** (`roUrlTransfer`, `roDeviceInfo`, etc.) — the framework creates and manages the object for you
 - **Use `eventFilter` with broadcast objects** (e.g., `roDeviceInfo`) to filter relevant events in `onSourceEvent()`
+- **Use `m.registerNodeObserver(node, fieldId)` for SceneGraph nodes that report via fields** (e.g. the `ChannelStore` node for IAP/subscriptions) — pick a `fieldId` that does not match any dispatcher id
 - **Use `m.getState()` in reducers** to access current state directly without callback
 - **Use `m.dispatchTo()` and `m.getStateFrom()`** in widgets and reducers for concise cross-dispatcher access
 - Filter listener updates with `allowUpdate` when needed

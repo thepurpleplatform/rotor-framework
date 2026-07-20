@@ -27,6 +27,9 @@ sub task()
     ' Create Transfer Dispatcher (tests identity-based registerSourceObject with roUrlTransfer)
     m.transferDispatcher = test.createTransferDispatcher()
 
+    ' Create Node Observer Dispatcher (tests registerNodeObserver with an SG-node field)
+    m.nodeObserverDispatcher = test.createNodeObserverDispatcher()
+
     m.appFw.sync(100, sub()
         fw = m.rotor_framework_helper.frameworkInstance
         dispatcher = fw.dispatcherProvider.get("sourceObjectDispatcher")

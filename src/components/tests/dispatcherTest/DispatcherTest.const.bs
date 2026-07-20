@@ -7,4 +7,9 @@ enum IntentTypes
     TRANSFER_COMPLETE = "transfer_complete"
     UNREGISTER_TRANSFER = "unregister_transfer"
     START_TRANSFER = "start_transfer"
+    SET_NODE_STATUS = "set_node_status"
+    NODE_STATUS_EVENT = "node_status_event"
+    UNREGISTER_NODE_OBSERVER = "unregister_node_observer"
+    SET_OLD_NODE_STATUS = "set_old_node_status"
+    REBIND_NODE_OBSERVER = "rebind_node_observer"
 end enum

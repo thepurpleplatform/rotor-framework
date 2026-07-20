@@ -91,6 +91,7 @@ namespace Rotor
         sourceObjectRegistry = {} ' identity -> { dispatcherId, objectId, eventFilter }
         sourceObjectIdIndex = {} ' objectId -> identity (reverse index for unregistration)
         sharedSourceObjects = {} ' typeName -> { sourceObject, subscribers: [{ dispatcherId, eventFilter }] }
+        nodeObserverRegistry = {} ' fieldId -> { dispatcherId, node } (SG-node field events routed to onSourceEvent)
         private _eventFilterFn = invalid as dynamic
         onTick as function
 
@@ -301,6 +302,58 @@ namespace Rotor
         end sub
 
         ' ---------------------------------------------------------------------
+        ' registerNodeObserver - Routes a task-created SG node's field events to a dispatcher
+        '
+        ' SG nodes (e.g. ChannelStore) deliver results via observed fields (roSGNodeEvent).
+        ' The task loop reserves SG-node field events for the cross-thread state protocol
+        ' (fieldId = dispatcherId), so an unregistered field would be silently dropped.
+        ' This registry claims a fieldId and routes its events to the owning dispatcher's
+        ' onSourceEvent instead.
+        '
+        ' NOTE: the fieldId must not collide with a dispatcher id (the registry takes
+        ' precedence over the cross-thread state routing for that fieldId).
+        '
+        ' @param {object} node - SG node created on this task thread (e.g. roSGNode "ChannelStore")
+        ' @param {string} fieldId - The node field to observe (e.g. "requestStatus")
+        ' @param {string} dispatcherId - Dispatcher whose onSourceEvent receives the events
+        '
+        public sub registerNodeObserver(node as object, fieldId as string, dispatcherId as string)
+            #if debug
+                ' A fieldId equal to a dispatcher id would shadow that dispatcher's
+                ' cross-thread state routing (the registry is checked first). Surface it.
+                if m.dispatcherProvider.get(fieldId) <> invalid
+                    print "[ROTOR][NODE_OBSERVER][WARNING] fieldId '" ; fieldId ; "' collides with a dispatcher id — its cross-thread state routing will be shadowed."
+                end if
+            #end if
+
+            ' Re-registering the same fieldId onto a different node: drop the stale
+            ' observer on the previous node so it does not keep firing after rebind.
+            existing = m.nodeObserverRegistry[fieldId]
+            if existing <> invalid and existing.node <> invalid and not existing.node.isSameNode(node)
+                existing.node.unobserveFieldScoped(fieldId)
+            end if
+
+            m.nodeObserverRegistry[fieldId] = {
+                dispatcherId: dispatcherId,
+                node: node
+            }
+            node.observeFieldScopedEx(fieldId, m.port)
+        end sub
+
+        ' ---------------------------------------------------------------------
+        ' unregisterNodeObserver - Removes an SG-node field observer registration
+        '
+        ' @param {object} node - The observed SG node
+        ' @param {string} fieldId - The observed field
+        '
+        public sub unregisterNodeObserver(node as object, fieldId as string)
+            node.unobserveFieldScoped(fieldId)
+            if m.nodeObserverRegistry.DoesExist(fieldId)
+                m.nodeObserverRegistry.Delete(fieldId)
+            end if
+        end sub
+
+        ' ---------------------------------------------------------------------
         ' sync - Starts the message loop for cross-thread communication
         '
         ' IMPORTANT: This method creates an infinite loop that handles:
@@ -369,6 +422,15 @@ namespace Rotor
 
                                 keepAlive = false
 
+                            end if
+                        else if m.nodeObserverRegistry.DoesExist(fieldId)
+                            ' Registered SG-node field observer (see registerNodeObserver):
+                            ' route the raw event to the owning dispatcher, same contract as
+                            ' source objects (onSourceEvent receives the event).
+                            entry = m.nodeObserverRegistry[fieldId]
+                            dispatcherInstance = m.dispatcherProvider.get(entry.dispatcherId)
+                            if dispatcherInstance <> invalid
+                                dispatcherInstance.onSourceEvent(msg)
                             end if
                         else
                             ' Cross-thread state change: notify task-side listeners
@@ -506,6 +568,13 @@ namespace Rotor
             m.sourceObjectRegistry.clear()
             m.sourceObjectIdIndex.clear()
             m.sharedSourceObjects.clear()
+            for each fieldId in m.nodeObserverRegistry
+                entry = m.nodeObserverRegistry[fieldId]
+                if entry.node <> invalid
+                    entry.node.unobserveFieldScoped(fieldId)
+                end if
+            end for
+            m.nodeObserverRegistry.clear()
             m.dispatcherProvider.destroy()
 
             globalScope = GetGlobalAA()

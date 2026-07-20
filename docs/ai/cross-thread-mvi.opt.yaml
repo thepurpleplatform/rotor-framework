@@ -31,6 +31,12 @@ api:
   unregisterSourceObject:
     syntax: "m.unregisterSourceObject(sourceObject)"
     description: "Unregister a previously registered source object. Identity-based: removes by identity from registry. Broadcast: removes dispatcher subscriber; cleans up shared object when no subscribers remain. Available in BaseReducer."
+  registerNodeObserver:
+    syntax: "m.registerNodeObserver(node, fieldId)"
+    description: "Routes a task-created SceneGraph node's FIELD events to this reducer's onSourceEvent(). Task thread only. For SG nodes that report via observed fields instead of a message port — canonical case is the SceneGraph ChannelStore node (IAP/subscriptions) delivering results via fields like requestStatus. registerSourceObject does NOT apply to such nodes (they have no SetMessagePort). The framework observes fieldId and delivers each change to onSourceEvent() as a roSGNodeEvent (discriminate by type(msg) and msg.getField()). The fieldId must NOT collide with a dispatcher id — the node-observer registry takes precedence over cross-thread state routing for that field, so a collision shadows that dispatcher's state delivery (debug builds log a warning). Re-registering the same fieldId onto a different node drops the previous node's observer. Available in BaseReducer."
+  unregisterNodeObserver:
+    syntax: "m.unregisterNodeObserver(node, fieldId)"
+    description: "Removes a node-field observer registered via registerNodeObserver. The framework also removes all remaining node observers automatically on destroy(). Available in BaseReducer."
   onCreateDispatcher:
     syntax: "override sub onCreateDispatcher()"
     description: "Lifecycle hook called after dispatcher is fully registered. Override to perform initialization that requires dispatcher to be set up (e.g., registering broadcast source objects like roDeviceInfo)."
@@ -148,6 +154,8 @@ patterns:
     - "m.getStateFrom(id) - get state from another dispatcher by ID"
     - "m.registerSourceObject(typeName, eventFilter) - create and register source object by type name; returns created (or shared) object"
     - "m.unregisterSourceObject(sourceObject) - unregister a source object"
+    - "m.registerNodeObserver(node, fieldId) - route a SceneGraph node's field events (e.g. ChannelStore requestStatus) to onSourceEvent(); task thread only"
+    - "m.unregisterNodeObserver(node, fieldId) - remove a node-field observer (also auto-removed on destroy)"
   dispatcherAccessibility:
     taskThread: "Dispatchers created via Rotor.createDispatcher() on task thread are globally accessible from render thread and other task threads."
     renderThread: "Dispatchers created on render thread are ideal for render-local UI state (reads/writes are synchronous and rendezvous-free on the render thread). They are ALSO reachable cross-thread: a task reducer can m.dispatchTo() a render-owned dispatcher (task->render). Prefer render-owned dispatchers for state the UI mutates locally; targeting them from a task is fully supported and rendezvous-free."
