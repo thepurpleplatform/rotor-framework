@@ -34,7 +34,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/mobalazs/rotor-framework.git"
+		"url": "git+https://github.com/thepurpleplatform/rotor-framework.git"
 	},
 	"keywords": [
 		"roku",
@@ -48,9 +48,9 @@
 		"ropm"
 	],
 	"bugs": {
-		"url": "https://github.com/mobalazs/rotor-framework/issues"
+		"url": "https://github.com/thepurpleplatform/rotor-framework/issues"
 	},
-	"homepage": "https://github.com/mobalazs/rotor-framework#readme",
+	"homepage": "https://github.com/thepurpleplatform/rotor-framework#readme",
 	"devDependencies": {
 		"@rokucommunity/bslint": "1.0.0-alpha.50",
 		"brighterscript": "1.0.0-alpha.50",

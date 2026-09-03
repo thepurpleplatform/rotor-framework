@@ -40,7 +40,7 @@ if (!fs.existsSync(inputFile)) {
 let content = fs.readFileSync(inputFile, 'utf8');
 
 // GitHub repository base URL with specific tag
-const GITHUB_BASE = `https://github.com/mobalazs/rotor-framework/blob/${tag}`;
+const GITHUB_BASE = `https://github.com/thepurpleplatform/rotor-framework/blob/${tag}`;
 
 // Transform internal docs/ paths to GitHub URLs
 // Pattern 1: [text](./docs/...)  ->  [text](https://github.com/.../docs/...)

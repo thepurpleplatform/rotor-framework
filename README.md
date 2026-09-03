@@ -1,7 +1,7 @@
 # Rotor Framework
 
-[![build status](https://img.shields.io/github/actions/workflow/status/mobalazs/rotor-framework/main-workflow.yml?branch=main&logo=github&label=build)](https://github.com/mobalazs/rotor-framework/actions/workflows/main-workflow.yml)
-[![Coverage Status](https://img.shields.io/coveralls/github/mobalazs/rotor-framework/main?logo=coveralls&logoColor=white&color=brightgreen)](https://coveralls.io/github/mobalazs/rotor-framework?branch=main)
+[![build status](https://img.shields.io/github/actions/workflow/status/thepurpleplatform/rotor-framework/main-workflow.yml?branch=main&logo=github&label=build)](https://github.com/thepurpleplatform/rotor-framework/actions/workflows/main-workflow.yml)
+[![Coverage Status](https://img.shields.io/coveralls/github/thepurpleplatform/rotor-framework/main?logo=coveralls&logoColor=white&color=brightgreen)](https://coveralls.io/github/thepurpleplatform/rotor-framework?branch=main)
 [![npm version](https://img.shields.io/npm/v/rotor-framework.svg?logo=npm)](https://www.npmjs.com/package/rotor-framework)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square&logo=apache&logoColor=white)](LICENSE)
 [![Slack](https://img.shields.io/badge/Slack-RokuDevelopers-4A154B?logo=slack)](https://rokudevelopers.slack.com)
@@ -24,7 +24,7 @@
 
 ## 🎯 Quick Start with Starter Template
 
-Want to get started quickly? Check out **[rotor-starter](https://github.com/mobalazs/rotor-starter)** - a ready-to-use project template with Rotor Framework pre-configured, sample components, and best practices built in.
+Want to get started quickly? Check out **[rotor-starter](https://github.com/thepurpleplatform/rotor-starter)** - a ready-to-use project template with Rotor Framework pre-configured, sample components, and best practices built in.
 
 ---
 
@@ -42,7 +42,7 @@ npm install --save-dev brighterscript@next @rokucommunity/bslint@next
 
 **Manual installation:**
 
-1. Download the latest `rotor-framework.zip` from [GitHub Releases](https://github.com/mobalazs/rotor-framework/releases)
+1. Download the latest `rotor-framework.zip` from [GitHub Releases](https://github.com/thepurpleplatform/rotor-framework/releases)
 2. Extract the ZIP into your project's `source/` directory (this will create a `rotor-framework/` folder)
 3. Import Rotor in your main file:
 
@@ -176,7 +176,7 @@ For commercial licensing inquiries, please contact the maintainer.
 
 Attribution is **not required** under the Apache 2.0 license for applications built with Rotor Framework. However, if you find this framework useful, we encourage you to include a voluntary attribution such as:
 
-> Built with [Rotor Framework](https://github.com/mobalazs/rotor-framework)
+> Built with [Rotor Framework](https://github.com/thepurpleplatform/rotor-framework)
 
 or
 

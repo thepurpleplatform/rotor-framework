@@ -47,7 +47,7 @@ installation:
     note: "Everything is in the Rotor namespace by default, so this is the only name reserved by the framework"
   manualInstall:
     steps:
-      - "Download the latest rotor-framework.zip from GitHub Releases: https://github.com/mobalazs/rotor-framework/releases"
+      - "Download the latest rotor-framework.zip from GitHub Releases: https://github.com/thepurpleplatform/rotor-framework/releases"
       - "Extract the ZIP into your project's source/ directory (this will create a rotor-framework/ folder)"
   import: "import \"pkg:/source/RotorFramework.bs\""
 quickStart:

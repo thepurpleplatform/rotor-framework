@@ -31,7 +31,7 @@ GitHub's hosted runners cannot access devices on your local network. Since our t
 mkdir actions-runner && cd actions-runner
 curl -o actions-runner-osx-x64-2.311.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.311.0/actions-runner-osx-x64-2.311.0.tar.gz
 tar xzf ./actions-runner-osx-x64-2.311.0.tar.gz
-./config.sh --url https://github.com/mobalazs/rotor-framework --token YOUR_TOKEN
+./config.sh --url https://github.com/thepurpleplatform/rotor-framework --token YOUR_TOKEN
 ./run.sh
 ```
 
@@ -64,7 +64,7 @@ These secrets are used by the `collect-coverage.js` script during the test phase
 
 1. Go to [coveralls.io](https://coveralls.io)
 2. Sign in with your GitHub account
-3. Add your repository: **Add repos** → find `mobalazs/rotor-framework` → toggle ON
+3. Add your repository: **Add repos** → find `thepurpleplatform/rotor-framework` → toggle ON
 4. No additional secrets needed - the workflow uses `GITHUB_TOKEN` automatically
 
 ### 5. Verify Setup
