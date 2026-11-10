@@ -4,14 +4,14 @@ The TTS Service provides text-to-speech functionality for Rotor Framework applic
 
 ## Overview
 
-The TTS Service is a framework-level service (similar to `i18nService`) that enables widgets to speak text through a simple decorator pattern. It supports advanced features like flush control, character-by-character spelling, duplicate speech prevention, sentence secure (rapid navigation protection), and localized symbol pronunciation.
+The TTS Service is a framework-level service (similar to `i18nService`) that enables widgets to speak text through a simple decorator pattern. It supports advanced features like declarative phrase composition (`say` / `role` / `state` / `position` with a localizable vocabulary), flush control, character-by-character spelling, duplicate speech prevention, sentence secure (rapid navigation protection), and localized symbol pronunciation.
 
 ## Architecture
 
 The TTS implementation consists of two layers:
 
 1. **TtsService** - Framework service that wraps native `roAudioGuide` API
-2. **widget.tts()** - Widget decorator for direct TTS access
+2. **widget.tts()** - Widget decorator that returns the `TtsService` instance; speak with `widget.tts().speak({...})`
 
 ## Basic Usage
 
@@ -19,7 +19,7 @@ The TTS implementation consists of two layers:
 
 ```brightscript
 ' Speak text from any widget
-widget.tts({
+widget.tts().speak({
     say: "Hello world"
 })
 ```
@@ -28,7 +28,7 @@ widget.tts({
 
 ```brightscript
 ' Use a function that returns text
-widget.tts({
+widget.tts().speak({
     say: function() as string
         return "Current count: " + Str(m.viewModelState.count)
     end function
@@ -57,11 +57,77 @@ widget.tts().speak({
 })
 ```
 
+### Phrase Composition (say / role / state / position)
+
+`speak()` builds the spoken phrase from parts and joins them with `", "`. Empty parts are skipped. The order is always `say`, `role`, `state`, `position`.
+
+```brightscript
+' say can be an array of parts (strings and/or functions)
+widget.tts().speak({
+    say: ["Play", m.props.title]
+})
+' Speaks: "Play, The Odyssey"
+
+' A part that is exactly an "@l10n.path" key is translated via i18nService (no context needed)
+widget.tts().speak({
+    say: "@l10n.buttons.play",
+    role: "button"
+})
+' Speaks: "Play, button"
+
+' state: true/false -> "on"/"off", or a key of the states vocabulary
+widget.tts().speak({
+    say: "Subtitles",
+    role: "button",
+    state: true
+})
+' Speaks: "Subtitles, button, on"
+
+' position: [zeroBasedIndex, count]
+widget.tts().speak({
+    say: m.props.title,
+    position: [2, 20]
+})
+' Speaks: "The Odyssey, 3 of 20"
+```
+
+| Field | Value | Spoken as |
+|-------|-------|-----------|
+| `say` | string, function, or array of those | each part, joined with `", "` |
+| `role` | string, e.g. `"button"` | `l10n.tts.roles.<role>`, or the given string if the vocabulary has no such key |
+| `state` | boolean | `l10n.tts.states.on` / `l10n.tts.states.off` |
+| `state` | string, e.g. `"selected"` | `l10n.tts.states.<state>`, or the given string if the vocabulary has no such key |
+| `position` | `[zeroBasedIndex, count]` | `l10n.tts.position` with `{index}` (one based) and `{count}` replaced |
+
+`say` is optional when `position` or `state` is given (`speak({ position: [0, 5] })` speaks "1 of 5").
+
+**Vocabulary.** English defaults are built in; `l10n.tts` overrides them per key, so a translation only needs the keys it changes and the phrase follows language changes automatically:
+
+```brightscript
+' Built-in defaults
+{
+    position: "{index} of {count}",
+    roles: { button: "button" },
+    states: { on: "on", off: "off", selected: "selected" }
+}
+
+' Hungarian translation file (only the tts part shown)
+{
+    tts: {
+        position: "{index} / {count}",
+        roles: { button: "gomb", slider: "csúszka" },
+        states: { on: "be", off: "ki", selected: "kiválasztva" }
+    }
+}
+```
+
+**`@l10n` keys.** Only a part that is the key and nothing else is translated (`"@l10n.buttons.play"`). A key that is not found, or that does not resolve to a string, is spoken as written. Inside a longer text (`"@l10n.buttons.play now"`) the composition does not translate; use an array of parts instead.
+
 ### Flush Control (Interrupt Current Speech)
 
 ```brightscript
 ' Interrupt current speech and speak new text
-widget.tts({
+widget.tts().speak({
     say: "Important message",
     flush: true
 })
@@ -71,7 +137,7 @@ widget.tts({
 
 ```brightscript
 ' Spell out text for passwords, codes, etc.
-widget.tts({
+widget.tts().speak({
     say: "A1B2C3",
     spellOut: true
 })
@@ -82,7 +148,7 @@ widget.tts({
 
 ```brightscript
 ' Spell out mode automatically handles emails
-widget.tts({
+widget.tts().speak({
     say: "user@domain.com",
     spellOut: true
 })
@@ -93,7 +159,7 @@ widget.tts({
 
 ```brightscript
 ' Spell out mode handles decimals
-widget.tts({
+widget.tts().speak({
     say: "3.14",
     spellOut: true
 })
@@ -104,7 +170,7 @@ widget.tts({
 
 ```brightscript
 ' Don't speak if same text was just spoken
-widget.tts({
+widget.tts().speak({
     say: "Loading...",
     dontRepeat: true
 })
@@ -116,18 +182,18 @@ Speak text only once per cache key. Useful for announcements that should only pl
 
 ```brightscript
 ' Speak only once - uses explicit cache key
-widget.tts({
+widget.tts().speak({
     say: "Welcome to the application!",
     onceKey: "welcome-message"
 })
 ' Second call with same onceKey - skips (already spoken)
-widget.tts({
+widget.tts().speak({
     say: "Welcome to the application!",
     onceKey: "welcome-message"  ' SKIPPED
 })
 
 ' Different text, same key - still skips (key-based caching)
-widget.tts({
+widget.tts().speak({
     say: "Bienvenue dans l'application!",  ' French version
     onceKey: "welcome-message"  ' SKIPPED (same key)
 })
@@ -140,7 +206,7 @@ widget.tts({
 m.framework.ttsService.removeOnceKey("welcome-message")
 
 ' Now speaks again
-widget.tts({
+widget.tts().speak({
     say: "Welcome to the application!",
     onceKey: "welcome-message"  ' SPEAKS (key removed)
 })
@@ -162,7 +228,7 @@ This is essential for multi-part announcements like menu titles:
 
 ```brightscript
 ' Menu title bypasses threshold and protects first sentence
-widget.tts({
+widget.tts().speak({
     say: "Page Menu, 5 items.",
     flush: true,
     preventNextFlush: true
@@ -171,36 +237,13 @@ widget.tts({
 ' First sentence "Page Menu, 5 items" is PROTECTED
 
 ' First menu item queues instead of interrupting
-widget.tts({
+widget.tts().speak({
     say: "Home, 1 of 5",
     flush: true
 })
 ' Result:
 ' - "Page Menu, 5 items" completes (protection blocked flush)
 ' - "Home, 1 of 5" queues and speaks after menu title
-```
-
-**Multi-sentence example:**
-```brightscript
-widget.tts({
-    say: "Please listen carefully. This is important. Don't skip this.",
-    preventNextFlush: true
-})
-' Bypasses threshold, speaks immediately
-' First sentence "Please listen carefully" is PROTECTED
-' Second and third sentences are NOT protected
-
-widget.tts({
-    say: "Interrupted",
-    flush: true
-})
-' This call arrives while still speaking
-' Result:
-' - First sentence "Please listen carefully" completes (protection blocks the flush)
-' - Second sentence "This is important" becomes PENDING (goes into 300ms threshold)
-' - Third sentence "Don't skip this" is never spoken (replaced)
-' - "Interrupted" becomes pending, replaces second sentence
-' - After protection ends and threshold expires: "Interrupted" speaks
 ```
 
 **How protection inheritance works with threshold:**
@@ -224,29 +267,29 @@ The mechanism uses the `isPendingProtected` flag:
 **Example: Menu title + rapid navigation**
 ```brightscript
 ' Menu opens - title speaks immediately and is protected
-widget.tts({ say: "Page Menu, 5 items.", preventNextFlush: true })
+widget.tts().speak({ say: "Page Menu, 5 items.", preventNextFlush: true })
 ' Title speaks immediately, isPendingProtected = true
 
 ' User immediately navigates (rapid focus changes)
-widget.tts({ say: "Home, 1 of 5", flush: true })       ' Flush blocked by isPendingProtected → PENDING
-widget.tts({ say: "Settings, 2 of 5", flush: true })   ' Flush blocked by isPendingProtected → Replaces "Home"
-widget.tts({ say: "About, 3 of 5", flush: true })      ' Flush blocked by isPendingProtected → Replaces "Settings"
+widget.tts().speak({ say: "Home, 1 of 5", flush: true })       ' Flush blocked by isPendingProtected → PENDING
+widget.tts().speak({ say: "Settings, 2 of 5", flush: true })   ' Flush blocked by isPendingProtected → Replaces "Home"
+widget.tts().speak({ say: "About, 3 of 5", flush: true })      ' Flush blocked by isPendingProtected → Replaces "Settings"
 ' User stops at "About"
 ' After 300ms: "About, 3 of 5" speaks, isPendingProtected cleared
 ```
 
-**Note:** Text is automatically split by periods (`.`). The first sentence of multi-sentence text is automatically protected via `preventNextFlush: true`. This sets `isPendingProtected = true`, which blocks ALL subsequent flush calls (both remaining sentences AND external calls like menu navigation) until the pending speech executes.
+**Note:** Text is spoken as one utterance; it is not split into sentences. Text longer than 50 characters is always spoken with flush (it interrupts the current speech), unless a `preventNextFlush` protection is active. A period alone does not force a flush, so titles like "Dr. Strange" or numbers like "4.5" behave like any other short text.
 
 ### Sentence Secure (Rapid Navigation Protection)
 
-The TTS service automatically prevents speech pile-up during rapid navigation (e.g., fast menu scrolling) using a **300ms threshold timer**:
+The TTS service automatically prevents speech pile-up during rapid navigation (e.g., fast menu scrolling) using a **300 ms one-shot debounce timer** that is restarted by every call:
 
 ```brightscript
 ' User rapidly navigates through menu items
-widget.tts({ say: "Menu item 1" })  ' Pending (300ms delay)
-widget.tts({ say: "Menu item 2" })  ' Replaces item 1
-widget.tts({ say: "Menu item 3" })  ' Replaces item 2
-widget.tts({ say: "Menu item 4" })  ' Replaces item 3
+widget.tts().speak({ say: "Menu item 1" })  ' Pending (300ms delay)
+widget.tts().speak({ say: "Menu item 2" })  ' Replaces item 1
+widget.tts().speak({ say: "Menu item 3" })  ' Replaces item 2
+widget.tts().speak({ say: "Menu item 4" })  ' Replaces item 3
 ' After 300ms of no new calls: "Menu item 4" is spoken (the last one)
 ```
 
@@ -255,20 +298,25 @@ widget.tts({ say: "Menu item 4" })  ' Replaces item 3
 - If another call comes within 300ms, it replaces the pending speech
 - After 300ms of inactivity, the last pending speech is spoken
 - `preventNextFlush: true` bypasses threshold and speaks immediately, plus protects from next flush
-- Uses SceneGraph Timer node for automatic execution
+- Uses a one-shot SceneGraph Timer node (`repeat = false`), started only when there is pending speech
 
 ## API Reference
 
-### widget.tts(config)
+### widget.tts().speak(config)
 
-Speaks text through the TTS service.
+`widget.tts()` returns the `TtsService` instance; `speak(config)` speaks text through it.
 
 **Parameters:**
 
 - `config` (object) - TTS configuration object
-  - `say` (string | function) - Text to speak or function returning text (required)
+  - `say` (string | function | array) - Text to speak (required unless `position` or `state` is given)
     - **String**: Plain text or interpolated text with `@viewModelState.key` or `$context.property` patterns
     - **Function**: Called with context scope if provided, must return string
+    - **Array**: Parts (strings and/or functions) joined with `", "`; empty parts are skipped
+    - A part that is exactly an `@l10n.path` key is translated via `i18nService` (no context needed)
+  - `role` (string) - Role appended after `say`, looked up in `l10n.tts.roles` (optional)
+  - `state` (boolean | string) - `true`/`false` → `l10n.tts.states.on`/`off`, or a key of `l10n.tts.states` (optional)
+  - `position` (array) - `[zeroBasedIndex, count]` → `l10n.tts.position`, default `"{index} of {count}"` (optional)
   - `context` (object) - Context for string interpolation (optional, widget or any object with viewModelState)
   - `flush` (boolean) - Interrupt current speech (default: false)
   - `spellOut` (boolean) - Spell out character-by-character (default: false)
@@ -316,7 +364,7 @@ The TTS service is accessible at `framework.ttsService` for advanced use cases.
 
 #### speak(config)
 
-Main TTS function (same as widget.tts()).
+Main TTS function (`widget.tts()` returns this same service).
 
 ```brightscript
 framework.ttsService.speak({
@@ -335,52 +383,28 @@ framework.ttsService.stopSpeech()
 
 #### enable() / disable()
 
-Enable or disable the TTS service. When enabled, native AudioGuide on root node is disabled. When disabled, native AudioGuide is re-enabled.
+App-level switch (`isEnabled`, default `true`). These only flip `isEnabled`; they do not depend on the device setting.
 
-**Note:** TTS can only be enabled if device AudioGuide is enabled in system settings.
-
-```brightscript
-framework.ttsService.disable()  ' Mute all TTS, enable native AudioGuide
-framework.ttsService.enable()   ' Resume TTS, disable native AudioGuide
-```
-
-#### toggleAudioGuide([enableState])
-
-Toggles TTS service on/off or sets explicit state. Returns new state.
-
-**Parameters:**
-- `enableState` (dynamic, optional) - `true` = enable, `false` = disable, omit/`invalid` = toggle
-
-**Usage:**
+- `disable()` stops current and pending speech first, then turns the service off.
+- `enable()` turns it back on. It can be called while the device screen reader is off; speech starts as soon as the user turns the screen reader on.
 
 ```brightscript
-' Toggle mode - switch current state
-isEnabled = framework.ttsService.toggleAudioGuide()
+framework.ttsService.disable()  ' Stop speech, service off
+framework.ttsService.enable()   ' Service on again
 
-' Explicit enable
-framework.ttsService.toggleAudioGuide(true)
-
-' Explicit disable
-framework.ttsService.toggleAudioGuide(false)
+' Toggle
+if framework.ttsService.isEnabled
+    framework.ttsService.disable()
+else
+    framework.ttsService.enable()
+end if
 ```
 
-**Example:**
-
-```brightscript
-' Toggle on button press
-function onOptionsPressed()
-    isEnabled = m.framework.ttsService.toggleAudioGuide()
-    if isEnabled
-        print "TTS is now enabled"
-    else
-        print "TTS is now disabled, native AudioGuide enabled"
-    end if
-end function
-```
+Speech is produced only while **both** are true: `isEnabled` and the device screen reader (Audio Guide) is on. See [Device AudioGuide Integration](#device-audioguide-integration).
 
 #### setSymbolDictionary(dictionary)
 
-Update symbol pronunciation for localization.
+Replaces the base symbol dictionary. `l10n.tts.symbols` (see [Localization](#localization)) is still applied on top of it.
 
 ```brightscript
 ' Hungarian localization
@@ -403,7 +427,7 @@ Removes a specific key from the speak-once cache, allowing text with that key to
 framework.ttsService.removeOnceKey("welcome-message")
 
 ' Now this will speak again
-widget.tts({ say: "Welcome!", onceKey: "welcome-message" })
+widget.tts().speak({ say: "Welcome!", onceKey: "welcome-message" })
 ```
 
 #### clearOnceCache()
@@ -424,7 +448,7 @@ The `spellOut` mode intelligently processes different text patterns:
 Symbols are replaced with spoken words using a localized dictionary:
 
 ```brightscript
-widget.tts({
+widget.tts().speak({
     say: "@#$",
     spellOut: true
 })
@@ -466,7 +490,7 @@ widget.tts({
 Emails are automatically detected and processed:
 
 ```brightscript
-widget.tts({
+widget.tts().speak({
     say: "support@company.com",
     spellOut: true
 })
@@ -478,7 +502,7 @@ widget.tts({
 Decimal numbers use "point" instead of "dot":
 
 ```brightscript
-widget.tts({
+widget.tts().speak({
     say: "3.14159",
     spellOut: true
 })
@@ -490,7 +514,7 @@ widget.tts({
 Regular text is spelled character-by-character with spaces:
 
 ```brightscript
-widget.tts({
+widget.tts().speak({
     say: "ABC",
     spellOut: true
 })
@@ -499,9 +523,29 @@ widget.tts({
 
 ## Localization
 
-### Customizing Symbol Pronunciation
+### Symbol Pronunciation from l10n (recommended)
 
-Update the symbol dictionary for different languages:
+`l10n.tts.symbols` is applied on top of the symbol dictionary automatically, per key. Spell-out follows language changes without extra calls:
+
+```brightscript
+' In the translation file
+{
+    tts: {
+        symbols: {
+            "@": "kukac",
+            ".": "pont"
+        }
+    }
+}
+' processSpellOutMode("user@domain.com") -> "user kukac domain pont com"
+' Symbols missing from l10n.tts.symbols keep their dictionary name ("#" -> "hash")
+```
+
+The same `l10n.tts` object holds the phrase vocabulary (`position`, `roles`, `states`), see [Phrase Composition](#phrase-composition-say--role--state--position).
+
+### Customizing Symbol Pronunciation in Code
+
+`setSymbolDictionary()` replaces the base dictionary (`l10n.tts.symbols` still wins per key):
 
 ```brightscript
 ' Spanish localization
@@ -531,7 +575,7 @@ framework.ttsService.setSymbolDictionary({
 ```brightscript
 function onFocusChanged(hasFocus as boolean)
     if hasFocus
-        m.tts({
+        m.tts().speak({
             say: m.title,
             flush: true
         })
@@ -544,7 +588,7 @@ end function
 ```brightscript
 function validateEmail(email as string)
     if not isValidEmail(email)
-        m.tts({
+        m.tts().speak({
             say: "Invalid email address",
             flush: true
         })
@@ -556,7 +600,7 @@ end function
 
 ```brightscript
 function onPasswordCharEntered(char as string)
-    m.tts({
+    m.tts().speak({
         say: char,
         spellOut: true,
         flush: true
@@ -569,7 +613,7 @@ end function
 
 ```brightscript
 function showLoading()
-    m.tts({
+    m.tts().speak({
         say: "Loading content",
         dontRepeat: true,
         preventNextFlush: true  ' Let it finish
@@ -581,7 +625,7 @@ end function
 
 ```brightscript
 function onMenuItemFocused(item as object)
-    m.tts({
+    m.tts().speak({
         say: item.title + ", " + item.description,
         flush: true,
         dontRepeat: true
@@ -593,45 +637,31 @@ end function
 
 The TTS service integrates with Roku's native AudioGuide system:
 
-### Automatic Detection
+### Runtime Detection
 
-The service automatically detects if AudioGuide is enabled in device system settings (`roDeviceInfo.isAudioGuideEnabled()`).
+The device setting can change while the app runs (for example with the `*` shortcut), so the service does not cache it. `speak()` checks `roDeviceInfo.isAudioGuideEnabled()` on every call:
 
-```brightscript
-' TTS service only works if device AudioGuide is enabled
-if framework.ttsService.isDeviceAudioGuideEnabled
-    print "Device AudioGuide is enabled"
-else
-    print "User must enable AudioGuide in system settings"
-end if
-```
+- Screen reader off: `speak()` does nothing (no pending speech, `onceKey` is not consumed). The service stays enabled.
+- Screen reader turned on later: the next `speak()` works, no re-initialization needed.
+
+There is no public field for the device state; read it with `CreateObject("roDeviceInfo").isAudioGuideEnabled()` if the app needs it.
 
 ### Native AudioGuide Control
 
-When TTS service is enabled, it automatically mutes the native AudioGuide on the root node to prevent conflicts:
+Controlled by the framework config `allowNativeAudioGuide` (default `true`):
+
+- `true`: the service never touches `rootNode.muteAudioGuide`; the native AudioGuide keeps reading focusable nodes next to the custom speech.
+- `false`: the service mutes the native AudioGuide on the root node **only while** `isEnabled` is true **and** the device screen reader is on. In every other case it is unmuted, so the native AudioGuide takes over again when the app calls `disable()`.
 
 ```brightscript
-' When TTS is enabled:
-rootNode.muteAudioGuide = true  ' Native AudioGuide muted
-
-' When TTS is disabled:
-rootNode.muteAudioGuide = false  ' Native AudioGuide unmuted
+rootNode.muteAudioGuide = isEnabled and deviceScreenReaderOn   ' only when allowNativeAudioGuide = false
 ```
 
-The `muteAudioGuide` property is **inherited** by all child nodes, ensuring the entire application uses only one TTS system at a time.
-
-### Initialization Behavior
-
-During framework initialization:
-
-1. Check if `roDeviceInfo.isAudioGuideEnabled()` returns true
-2. If false, TTS service disables itself
-3. If true and TTS enabled, mute native AudioGuide on root node (`muteAudioGuide = true`)
-4. On destroy, unmute native AudioGuide (`muteAudioGuide = false`)
+The mute is synchronized in `init()`, `enable()`, `disable()` and on every active `speak()`. The `muteAudioGuide` property is **inherited** by all child nodes.
 
 ## Best Practices
 
-1. **Check device AudioGuide first** - TTS only works if user enabled AudioGuide in system settings
+1. **Device setting decides** - Speech only happens while the user has the screen reader (Audio Guide) on; it can be switched at any time and the service follows
 2. **Use `flush: true` for important messages** - Ensures user hears critical information
 3. **Use `dontRepeat: true` for repetitive actions** - Prevents annoying duplicate speech
 4. **Use `preventNextFlush` sparingly** - Only for critical first sentences
@@ -643,7 +673,7 @@ During framework initialization:
    - Abbreviations and acronyms
 7. **Localize symbol dictionary** - Provide native language symbol names
 8. **Keep messages concise** - Long messages can be interrupted or ignored
-9. **Provide context** - "Menu opened" vs just "Opened"
+9. **Provide context** - "Menu opened" vs just "Opened"; use `role` / `state` / `position` instead of hand-built strings so the wording is localizable
 10. **Respect user's AudioGuide setting** - Don't try to override device-level disable
 
 ## Performance Considerations
@@ -653,23 +683,30 @@ During framework initialization:
 - Native `roAudioGuide` API is optimized by Roku
 - `dontRepeat` flag reduces unnecessary TTS calls
 - Sentence secure prevents speech queue pile-up during rapid navigation
-- Debounce timer runs in background (200ms SceneGraph Timer node)
-- Timer overhead is minimal (repeating timer checks every 200ms)
-- Service automatically disables if device AudioGuide not enabled
-- Service can be globally toggled with `toggleAudioGuide()`
-- Native AudioGuide automatically managed (no manual control needed)
+- Debounce uses a 300 ms one-shot SceneGraph Timer node; it only runs while speech is pending
+- `speak()` returns early while the device screen reader is off
+- Service can be globally switched with `enable()` / `disable()`
+- Native AudioGuide mute is managed by the service when `allowNativeAudioGuide` is `false`
 
 ## Debugging
 
-Enable debug mode to see TTS activity:
+TTS logging is off by default. Turn it on with the framework config option `debug.logTts`:
 
 ```brightscript
-#if debug
-    ? "[TTS_SERVICE] Speaking: Hello world (flush: true, spellOut: false)"
-#end if
+framework = new Rotor.Framework({
+    debug: { logTts: true }
+})
 ```
 
-All TTS operations are logged in debug builds.
+In debug builds (`bs_const` `debug=true`) every `speak()` request then logs the composed phrase:
+
+```
+[ROTOR][TTS] say: Play, button (active: true)
+```
+
+- `active` is `isEnabled AND device screen reader on`. The line is logged even when the screen reader is off (`active: false`), so the wording can be checked without turning Audio Guide on.
+- Runtime switch: `framework.ttsService.isLoggingEnabled = true / false`.
+- The log is compiled out of non-debug builds, where both the config option and the runtime switch have no effect.
 
 ## Comparison with Beam TTS
 

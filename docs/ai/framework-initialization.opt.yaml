@@ -30,8 +30,8 @@ configurationOptions:
     allowNativeAudioGuide:
       type: "boolean"
       required: false
-      default: false
-      description: "Allow native AudioGuide when TTS service enabled. If true, rootNode.muteAudioGuide not set. If false, native AudioGuide muted when TTS enabled."
+      default: true
+      description: "Allow native AudioGuide next to the TTS service. If true, rootNode.muteAudioGuide not touched. If false, native AudioGuide muted while TTS service is enabled AND device screen reader is on."
     debug:
       type: "object"
       required: false
@@ -40,6 +40,10 @@ configurationOptions:
           type: "boolean"
           default: false
           description: "Automatically set node IDs for debugging"
+        logTts:
+          type: "boolean"
+          default: false
+          description: "Debug builds only: log every TTS request as '[ROTOR][TTS] say: {phrase} (active: {bool})', also when screen reader is off. Runtime switch: ttsService.isLoggingEnabled"
 basicInitialization: |
   ' Minimal
   framework = new Rotor.Framework()

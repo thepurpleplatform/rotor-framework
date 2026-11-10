@@ -29,6 +29,15 @@ namespace Rotor.ViewBuilder
     '   - Speak once mode (once) - caches text to prevent re-speaking
     '   - Symbol/email handling with localized symbol names
     '
+    ' Phrase composition (vocabulary from l10n.tts, English defaults built in):
+    '   say      - string, function, or array of parts joined with ", " (empty parts skipped);
+    '              a part that is exactly an "@l10n.path" key is translated
+    '   role     - appended role name, e.g. "button" -> l10n.tts.roles.button
+    '   state    - true/false -> l10n.tts.states.on/off, or a key of l10n.tts.states
+    '   position - [zeroBasedIndex, count] -> l10n.tts.position ("{index} of {count}")
+    '   e.g. speak({ say: "@l10n.buttons.play", role: "button" })    -> "Play, button"
+    '        speak({ say: title, position: [2, 20] })               -> "The Odyssey, 3 of 20"
+    '
     ' Usage:
     '   widget.tts().speak({
     '       say: "Hello world",
@@ -49,6 +58,7 @@ namespace Rotor.ViewBuilder
 
         ' State tracking
         isEnabled = true
+        isLoggingEnabled = false ' debug builds only; set from config.debug.logTts
         allowNativeAudioGuide = true
 
         lastSpeech = ""
@@ -90,6 +100,13 @@ namespace Rotor.ViewBuilder
             "|": "pipe",
             "~": "tilde",
             "$": "dollar"
+        }
+
+        ' Phrase vocabulary used by role / state / position (l10n.tts overrides per key)
+        defaultVocabulary = {
+            position: "{index} of {count}",
+            roles: { button: "button" },
+            states: { on: "on", off: "off", selected: "selected" }
         }
 
         ' Decimal handling regex
@@ -136,17 +153,9 @@ namespace Rotor.ViewBuilder
                 ' ? "[TTS_SERVICE][INFO] Threshold timer created (one-shot, "; m.debounceDelay; "ms)"
             #end if
 
-            ' Check device AudioGuide status dynamically
-            if not m.getIsDeviceAudioGuideEnabled()
-                #if debug
-                    ' ? "[TTS_SERVICE][INFO] Device AudioGuide is disabled, TTS service disabled"
-                #end if
-                m.isEnabled = false
-                return
-            else if m.isEnabled ' enable according to initial state
-                ' If device AudioGuide is enabled and we want to use custom TTS,
-                m.enable()
-            end if
+            ' The device setting can change while the app runs (e.g. the * shortcut), so it is
+            ' checked on every speak() instead of once here. isEnabled is the app-level switch only.
+            m.syncNativeAudioGuideMute()
 
         end sub
 
@@ -154,7 +163,11 @@ namespace Rotor.ViewBuilder
         ' speak - Main TTS function called from widget.tts() decorator
         '
         ' @param {object} config - TTS configuration object
-        '   {string|function} say - Text to speak (string or function returning string)
+        '   {string|function|array} say - Text to speak: string, function returning string, or array of
+        '       such parts joined with ", " (a part that is exactly an "@l10n.path" key is translated)
+        '   {string} role - Role name appended after say (looked up in l10n.tts.roles)
+        '   {boolean|string} state - true/false -> l10n.tts.states.on/off, or a key of l10n.tts.states
+        '   {array} position - [zeroBasedIndex, count] -> l10n.tts.position
         '   {boolean} flush - Interrupt current speech (default: false)
         '   {boolean} spellOut - Spell out text character-by-character (default: false)
         '   {boolean} preventNextFlush - Bypass threshold AND protect from next flush (default: false)
@@ -163,9 +176,17 @@ namespace Rotor.ViewBuilder
         '   {object} context - Context for interpolation (optional)
         '
         public sub speak(config as object)
-            ' Check if both device AudioGuide and service are enabled
-            if not m.isEnabled or not m.getIsDeviceAudioGuideEnabled() then return
-            if config.say = invalid then return
+            if config.say = invalid and config.position = invalid and config.state = invalid then return
+            ' Both the app-level switch and the device screen reader must be on (checked on every call)
+            isActive = m.isEnabled and m.getIsDeviceAudioGuideEnabled()
+            #if debug
+                ' Logged even when the device screen reader is off, so speech can be checked without it
+                if m.isLoggingEnabled
+                    ? "[ROTOR][TTS] say: "; m.composeSpeech(config); " (active: "; isActive; ")"
+                end if
+            #end if
+            if not isActive then return
+            m.syncNativeAudioGuideMute()
 
             ' Extract parameters
             shouldFlush = config?.flush ?? false
@@ -186,8 +207,7 @@ namespace Rotor.ViewBuilder
                 m.skipCache[onceKey] = true
             end if
 
-            ' Process say value (function, string interpolation, or plain string)
-            textToSpeak = m.processSayValue(config.say, config.context)
+            textToSpeak = m.composeSpeech(config)
             if textToSpeak = invalid or textToSpeak = "" then return
 
             ' Process text based on spell out mode
@@ -298,7 +318,7 @@ namespace Rotor.ViewBuilder
         ' ---------------------------------------------------------------------
         ' onDebounceTimer - Timer callback for threshold (one-shot timer)
         '
-        ' Called automatically when timer fires after 200ms.
+        ' Called automatically when the timer fires (debounceDelay, 300 ms).
         ' Executes the pending speech if still valid.
         '
         ' @private
@@ -335,15 +355,10 @@ namespace Rotor.ViewBuilder
             shouldPreventNextFlush = config.shouldPreventNextFlush
             dontRepeat = config.dontRepeat
 
-            ' Force flush for long or multi-sentence text (ensures important announcements interrupt previous speech)
-            isLongText = Len(textToSpeak) > 50
-            isMultiSentence = Instr(1, textToSpeak, ".") > 0
-
-            if isLongText or isMultiSentence
+            ' Force flush for long text (ensures important announcements interrupt previous speech).
+            ' A dot alone is not a reason: titles ("Dr. Strange") and numbers ("4.5") contain dots.
+            if Len(textToSpeak) > 50
                 shouldFlush = true
-                #if debug
-                    ' ? "[TTS_SERVICE] Forcing flush for long/multi-sentence text (len: "; Len(textToSpeak); ", multi: "; isMultiSentence; ")"
-                #end if
             end if
 
             ' Speak text
@@ -387,6 +402,93 @@ namespace Rotor.ViewBuilder
             #end if
 
             return speechId
+        end function
+
+        ' ---------------------------------------------------------------------
+        ' composeSpeech - Builds the spoken phrase from say / role / state / position
+        '
+        ' @param {object} config - speak() config
+        ' @returns {string} Parts joined with ", " (empty parts skipped)
+        ' @private
+        '
+        private function composeSpeech(config as object) as string
+            parts = []
+            sayParts = Rotor.Utils.isArray(config.say) ? config.say : [config.say]
+            for each sayPart in sayParts
+                parts.push(m.translateKey(m.processSayValue(sayPart, config.context)))
+            end for
+
+            vocabulary = m.getVocabulary()
+            if Rotor.Utils.isString(config.role)
+                parts.push(vocabulary.roles[config.role] ?? config.role)
+            end if
+            if Rotor.Utils.isBoolean(config.state)
+                parts.push(config.state ? vocabulary.states.on : vocabulary.states.off)
+            else if Rotor.Utils.isString(config.state)
+                parts.push(vocabulary.states[config.state] ?? config.state)
+            end if
+            if Rotor.Utils.isArray(config.position) and config.position.Count() = 2
+                index = "%d".Format(config.position[0] + 1)
+                count = "%d".Format(config.position[1])
+                parts.push(vocabulary.position.Replace("{index}", index).Replace("{count}", count))
+            end if
+
+            phrase = ""
+            for each part in parts
+                if Rotor.Utils.isString(part) and part <> ""
+                    if phrase = ""
+                        phrase = part
+                    else
+                        phrase = phrase + ", " + part
+                    end if
+                end if
+            end for
+            return phrase
+        end function
+
+        ' ---------------------------------------------------------------------
+        ' translateKey - Translates a text that is exactly an "@l10n.path" key
+        '
+        ' @private
+        '
+        private function translateKey(text as string) as string
+            if Left(text, 6) <> "@l10n." or Instr(1, text, " ") > 0 then return text
+            translated = Rotor.Utils.getValueByKeyPath(m.getL10n(), Mid(text, 7))
+            if Rotor.Utils.isString(translated) then return translated
+            return text
+        end function
+
+        ' ---------------------------------------------------------------------
+        ' getVocabulary - Default vocabulary overridden by l10n.tts (per key)
+        '
+        ' @private
+        '
+        private function getVocabulary() as object
+            vocabulary = {
+                position: m.defaultVocabulary.position,
+                roles: {},
+                states: {}
+            }
+            vocabulary.roles.Append(m.defaultVocabulary.roles)
+            vocabulary.states.Append(m.defaultVocabulary.states)
+
+            localized = m.getL10n()?.tts
+            if localized = invalid then return vocabulary
+            if Rotor.Utils.isString(localized.position) then vocabulary.position = localized.position
+            if Rotor.Utils.isAssociativeArray(localized.roles) then vocabulary.roles.Append(localized.roles)
+            if Rotor.Utils.isAssociativeArray(localized.states) then vocabulary.states.Append(localized.states)
+            return vocabulary
+        end function
+
+        ' ---------------------------------------------------------------------
+        ' getL10n - Current translations from the framework i18nService
+        '
+        ' @private
+        '
+        private function getL10n() as object
+            l10n = m.frameworkInstance?.i18nService?.getL10n()
+            if l10n = invalid then return {}
+            return l10n
         end function
 
         ' ---------------------------------------------------------------------
@@ -507,11 +609,12 @@ namespace Rotor.ViewBuilder
                 result = text
                 atWord = " at "
                 dotWord = " dot "
-                if m.symbolDictionary.DoesExist("@")
-                    atWord = " " + m.symbolDictionary["@"] + " "
+                symbols = m.getSymbolDictionary()
+                if symbols.DoesExist("@")
+                    atWord = " " + symbols["@"] + " "
                 end if
-                if m.symbolDictionary.DoesExist(".")
-                    dotWord = " " + m.symbolDictionary["."] + " "
+                if symbols.DoesExist(".")
+                    dotWord = " " + symbols["."] + " "
                 end if
                 result = result.Replace("@", atWord)
                 result = result.Replace(".", dotWord)
@@ -519,12 +622,13 @@ namespace Rotor.ViewBuilder
             end if
 
             ' Character-by-character recitation with symbol replacement
+            symbols = m.getSymbolDictionary()
             for i = 0 to textLength - 1
                 char = Mid(text, i + 1, 1)
 
                 ' Check if character is a symbol
-                if m.symbolDictionary.DoesExist(char)
-                    result = result + m.symbolDictionary[char] + " "
+                if symbols.DoesExist(char)
+                    result = result + symbols[char] + " "
                 else
                     ' Regular character - add with space for separation
                     result = result + char + " "
@@ -557,6 +661,23 @@ namespace Rotor.ViewBuilder
         end sub
 
         ' ---------------------------------------------------------------------
+        ' getSymbolDictionary - Symbol names in the UI language
+        '
+        ' l10n.tts.symbols (per key) on top of the dictionary, so spell-out follows
+        ' language changes without extra calls.
+        '
+        ' @private
+        '
+        private function getSymbolDictionary() as object
+            localized = m.getL10n()?.tts?.symbols
+            if not Rotor.Utils.isAssociativeArray(localized) then return m.symbolDictionary
+            symbols = {}
+            symbols.Append(m.symbolDictionary)
+            symbols.Append(localized)
+            return symbols
+        end function
+
+        ' ---------------------------------------------------------------------
         ' setSymbolDictionary - Updates symbol dictionary for localization
         '
         ' @param {object} dictionary - Symbol to spoken word mapping
@@ -586,41 +707,36 @@ namespace Rotor.ViewBuilder
         ' enable - Enables TTS service and disables native AudioGuide
         '
         public sub enable()
-            if not m.getIsDeviceAudioGuideEnabled()
-                #if debug
-                    ' ? "[TTS_SERVICE][WARNING] Cannot enable - device AudioGuide is disabled"
-                #end if
-                return
-            end if
-
+            if m.audioGuide = invalid then return
             m.isEnabled = true
-
-            ' Mute native AudioGuide on root node if not allowing native
-            rootNode = m.frameworkInstance.getRootNode()
-            if rootNode <> invalid and not m.allowNativeAudioGuide
-                rootNode.muteAudioGuide = true
-                #if debug
-                    ' ? "[TTS_SERVICE][INFO] Enabled TTS, muted native AudioGuide"
-                #end if
-            end if
+            m.syncNativeAudioGuideMute()
         end sub
 
         ' ---------------------------------------------------------------------
         ' disable - Disables TTS service and re-enables native AudioGuide
         '
         public sub disable()
-            m.isEnabled = false
+            ' Stop first: stopSpeech() is a no-op once isEnabled is false
             m.stopSpeech()
+            m.isEnabled = false
+            m.syncNativeAudioGuideMute()
+        end sub
 
-            ' Unmute native AudioGuide on root node if device supports it
-            if m.getIsDeviceAudioGuideEnabled()
-                rootNode = m.frameworkInstance.getRootNode()
-                if rootNode <> invalid
-                    rootNode.muteAudioGuide = false
-                    #if debug
-                        ' ? "[TTS_SERVICE][INFO] Disabled TTS, unmuted native AudioGuide"
-                    #end if
-                end if
+        ' ---------------------------------------------------------------------
+        ' syncNativeAudioGuideMute - Mutes the native AudioGuide while this service speaks
+        '
+        ' Muted only when the service is enabled AND the device screen reader is on, so the
+        ' native AudioGuide takes over again when the app disables the service.
+        '
+        ' @private
+        '
+        private sub syncNativeAudioGuideMute()
+            if m.allowNativeAudioGuide or m.frameworkInstance = invalid then return
+            rootNode = m.frameworkInstance.getRootNode()
+            if rootNode = invalid then return
+            shouldMute = m.isEnabled and m.getIsDeviceAudioGuideEnabled()
+            if rootNode.muteAudioGuide <> shouldMute
+                rootNode.muteAudioGuide = shouldMute
             end if
         end sub
 

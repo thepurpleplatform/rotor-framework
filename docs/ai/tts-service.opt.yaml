@@ -8,6 +8,8 @@ scope:
     - Framework via framework.ttsService
   features:
     - "Native roAudioGuide integration"
+    - "Runtime Audio Guide toggle (device setting checked on every speak)"
+    - "Declarative phrase composition: say / role / state / position (vocabulary from l10n.tts, English defaults)"
     - "Flush control (interrupt current speech)"
     - "Spell out mode (character-by-character)"
     - "Override next flush protection"
@@ -18,22 +20,25 @@ core:
   architecture: |
     Two-layer design (simpler than Beam's 3-layer):
     1. TtsService - Framework service wrapping roAudioGuide
-    2. widget.tts() - Widget decorator for direct access
+    2. widget.tts() - Widget decorator, returns the TtsService instance (speak via widget.tts().speak({...}))
 
     No event system needed - widgets call service directly
   initialization: |
     ' Automatic initialization in Framework
     sub new(config = {})
       m.ttsService = new Rotor.ViewBuilder.TtsService()
-      m.ttsService.init(m)
+      m.ttsService.init(m, m.config.allowNativeAudioGuide)
     end sub
 api:
   widgetDecorator: "Service getter injected DIRECTLY onto widget (NOT under widget.plugins)"
   access:
-    syntax: "widget.tts().speak({ say, context, flush, spellOut, preventNextFlush, dontRepeat })"
+    syntax: "widget.tts().speak({ say, role, state, position, context, flush, spellOut, preventNextFlush, dontRepeat, onceKey })"
     description: "widget.tts() returns TtsService instance. Main TTS function available on all widgets as decorator method."
     parameters:
-      say: "Text to speak (required, string|function) - Plain string, interpolated string (@viewModelState.key or $context.property), or function returning string"
+      say: "Text to speak (string|function|array; required unless position or state is given) - Plain string, interpolated string (@viewModelState.key or $context.property), function returning string, or array of such parts joined with ', ' (empty parts skipped). A part that is exactly an '@l10n.path' key is translated via i18nService, no context needed"
+      role: "Role appended after say (optional, string) - 'button' -> l10n.tts.roles.button; unknown key is spoken as given"
+      state: "State appended after role (optional, boolean|string) - true/false -> l10n.tts.states.on/off; string -> l10n.tts.states[key], unknown key is spoken as given"
+      position: "Position appended last (optional, array [zeroBasedIndex, count]) -> l10n.tts.position with {index} (one based) and {count} replaced"
       context: "Context for interpolation (optional, object) - Widget or any object with viewModelState property"
       flush: "Interrupt current speech (optional, boolean, default: false)"
       spellOut: "Spell character-by-character (optional, boolean, default: false)"
@@ -41,19 +46,19 @@ api:
       dontRepeat: "Skip if same as last speech (optional, boolean, default: false)"
       onceKey: "Cache key for speak-once mode (optional, string) - If provided, caches and skips subsequent calls with same key"
   serviceMethods:
-    speak: "ttsService.speak(config) - Same as widget.tts()"
+    speak: "ttsService.speak(config) - widget.tts() returns this same service"
     stopSpeech: "ttsService.stopSpeech() - Stop all speech immediately and cancel pending"
-    enable: "ttsService.enable() - Enable TTS, disable native AudioGuide on rootNode"
-    disable: "ttsService.disable() - Disable TTS, re-enable native AudioGuide"
-    toggleAudioGuide: "ttsService.toggleAudioGuide([enableState]) - Toggle (no arg) or set explicit state (true/false), returns new state"
-    setSymbolDictionary: "ttsService.setSymbolDictionary(dict) - Update symbol pronunciation for localization"
+    enable: "ttsService.enable() - Sets isEnabled = true (app-level switch only, works even while the device screen reader is off), then syncs native mute"
+    disable: "ttsService.disable() - Calls stopSpeech() first (clears current + pending speech), then sets isEnabled = false and syncs native mute"
+    isEnabled: "ttsService.isEnabled - App-level switch (boolean field, default true). Toggle with: if isEnabled then disable() else enable()"
+    setSymbolDictionary: "ttsService.setSymbolDictionary(dict) - Replace base symbol dictionary; l10n.tts.symbols is still applied on top per key"
     removeOnceKey: "ttsService.removeOnceKey(key) - Remove specific key from speak-once cache to allow re-speaking"
     clearOnceCache: "ttsService.clearOnceCache() - Clear entire speak-once cache"
   deviceIntegration:
-    getIsDeviceAudioGuideEnabled: "Private function - dynamically checks roDeviceInfo.isAudioGuideEnabled() (no caching)"
-    muteAudioGuide: "Root node property - set to true when TTS enabled, false when disabled (inherited by children)"
-    automaticDetection: "Service dynamically checks device AudioGuide status on every operation"
-    nativeControl: "Service manages rootNode.muteAudioGuide automatically"
+    getIsDeviceAudioGuideEnabled: "Private function - dynamically checks roDeviceInfo.isAudioGuideEnabled() (no caching, no public field). App code: CreateObject('roDeviceInfo').isAudioGuideEnabled()"
+    runtimeToggle: "Device setting can change while the app runs (e.g. * shortcut). speak() checks it on every call: off -> no-op (service stays enabled, onceKey not consumed); on -> speaks, no re-init needed"
+    muteAudioGuide: "Only when config allowNativeAudioGuide = false: rootNode.muteAudioGuide = (isEnabled AND device screen reader on), inherited by children. allowNativeAudioGuide = true (default): never touched"
+    nativeControl: "Mute synced in init(), enable(), disable() and every active speak()"
 usage:
   basicSpeech: |
     ' Get TTS service via widget decorator, then call speak()
@@ -84,12 +89,19 @@ usage:
       context: m
     })
   sentenceSecure: |
-    ' 400ms threshold - last item speaks (ALL speech goes through threshold)
+    ' 300ms one-shot debounce timer - last item speaks (ALL speech goes through threshold)
     ttsService = widget.tts()
-    ttsService.speak({ say: "Item 1" })  ' Pending 400ms
+    ttsService.speak({ say: "Item 1" })  ' Pending 300ms
     ttsService.speak({ say: "Item 2" })  ' Replaces Item 1
     ttsService.speak({ say: "Item 3" })  ' Replaces Item 2
-    ' After 400ms: Item 3 speaks
+    ' After 300ms: Item 3 speaks
+  phraseComposition: |
+    ' Parts joined with ", " in fixed order: say, role, state, position
+    widget.tts().speak({ say: "@l10n.buttons.play", role: "button" })       ' "Play, button"
+    widget.tts().speak({ say: "Subtitles", role: "button", state: true })    ' "Subtitles, button, on"
+    widget.tts().speak({ say: m.props.title, position: [2, 20] })           ' "The Odyssey, 3 of 20"
+    widget.tts().speak({ say: ["Play", m.props.title, ""] })                ' "Play, The Odyssey"
+    widget.tts().speak({ position: [0, 5] })                                ' "1 of 5" (say optional)
   flushControl: |
     ' Interrupt current speech
     widget.tts().speak({
@@ -139,14 +151,14 @@ usage:
       onceKey: "welcome-message"  ' SPEAKS
     })
   overrideFlush: |
-    ' Bypasses threshold AND protects first sentence (menu title use case)
+    ' Bypasses threshold AND protects the speech from the next flush (menu title use case)
     ttsService = widget.tts()
     ttsService.speak({
       say: "Page Menu, 5 items",
       flush: true,
       preventNextFlush: true
     })
-    ' Bypasses 400ms threshold, speaks immediately, first sentence protected
+    ' Bypasses 300ms threshold, speaks immediately, protected from next flush
     ttsService.speak({
       say: "Home, 1 of 5",
       flush: true
@@ -176,6 +188,17 @@ spellOutMode:
     Character-by-character with spaces:
     "ABC" → "A B C"
 localization:
+  l10nTts: |
+    ' l10n.tts overrides built-in English defaults PER KEY; follows language changes automatically
+    ' Defaults: position "{index} of {count}", roles { button }, states { on, off, selected }
+    {
+      tts: {
+        position: "{index} / {count}",
+        roles: { button: "gomb" },
+        states: { on: "be", off: "ki", selected: "kiválasztva" },
+        symbols: { "@": "kukac", ".": "pont" }   ' applied on top of the symbol dictionary (spellOut)
+      }
+    }
   symbolDictionary: |
     ' Hungarian localization
     framework.ttsService.setSymbolDictionary({
@@ -236,52 +259,52 @@ patterns:
       })
     end function
 bestPractices:
-  - "Check isDeviceAudioGuideEnabled before expecting TTS to work"
+  - "Speech happens only while isEnabled AND the device screen reader is on; the user can switch it at any time and the service follows"
+  - "Use role / state / position instead of hand-built strings so wording is localizable via l10n.tts"
   - "Use flush: true for important messages"
   - "Use dontRepeat: true for repetitive actions"
   - "Use preventNextFlush sparingly (critical messages only)"
   - "Trust sentence secure for navigation (no flush needed on focus changes)"
   - "Use spellOut for passwords, emails, codes, abbreviations"
-  - "Localize symbol dictionary for native language"
+  - "Localize symbols via l10n.tts.symbols (preferred) or setSymbolDictionary"
   - "Keep messages concise (long messages can be interrupted)"
   - "Provide context ('Menu opened' vs 'Opened')"
   - "Respect user's device AudioGuide setting (don't override)"
 rules:
   - "widget.tts() available on all widgets after widget creation"
   - "Device AudioGuide status checked dynamically (no caching) on every operation"
-  - "Service auto-disables if device AudioGuide not enabled (roDeviceInfo.isAudioGuideEnabled())"
-  - "When TTS enabled, rootNode.muteAudioGuide set to true (mute native, inherited)"
-  - "When TTS disabled, rootNode.muteAudioGuide set to false (unmute native)"
-  - "muteAudioGuide property is inherited by all child nodes"
-  - "toggleAudioGuide() accepts optional boolean: true=enable, false=disable, invalid=toggle"
-  - "Text split by periods (.) into sentences automatically"
-  - "Only first sentence flush-es, remaining sentences queue naturally"
-  - "preventNextFlush protects ONLY first sentence from next flush"
-  - "Single sentence text (no periods) protects entire text if preventNextFlush=true"
-  - "Sentence secure: 200ms debounce timer, last pending speech speaks"
-  - "SceneGraph Timer node polls every 200ms to execute pending speech"
-  - "Each non-flush call replaces pending speech and resets timer"
-  - "flush: true bypasses debounce, speaks immediately, cancels pending"
+  - "Service does NOT disable itself when the screen reader is off at startup; speak() is a no-op until it is turned on"
+  - "enable()/disable() only flip isEnabled (plus native mute sync); disable() stops speech first"
+  - "allowNativeAudioGuide=false: rootNode.muteAudioGuide = isEnabled AND device on (inherited by children)"
+  - "No toggleAudioGuide() and no isDeviceAudioGuideEnabled field exist"
+  - "Phrase order is fixed: say, role, state, position; joined with ', '; empty parts skipped"
+  - "@l10n key is translated only when the part is exactly the key (no spaces); unresolved key is spoken as written"
+  - "Text is NOT split into sentences; one speak() = one utterance"
+  - "Only text longer than 50 chars forces flush; a '.' does not ('Dr. Strange', '4.5')"
+  - "preventNextFlush: bypasses threshold, speaks immediately, blocks following flushes until pending executes"
+  - "Sentence secure: 300ms one-shot Timer (repeat=false), restarted by every call; last pending speech speaks"
+  - "ALL calls (flush true or false) go through the threshold; only preventNextFlush bypasses it"
   - "spellOut mode intelligently handles emails, decimals, symbols"
   - "dontRepeat compares with lastSpeech string AND uses native roAudioGuide parameter"
   - "Only one TTS system active at a time (custom or native)"
 pitfalls:
-  - "Service won't work if user hasn't enabled AudioGuide in device settings"
-  - "roAudioGuide unavailable in test environment (service disables itself)"
+  - "No speech while the screen reader is off in device settings (with debug.logTts the log still shows the phrase with active: false)"
+  - "widget.tts({...}) is WRONG - tts() takes no config; use widget.tts().speak({...})"
+  - "In unit tests (bs_const unittest) the device check always returns true"
   - "Long messages may be interrupted by user actions"
-  - "Symbol dictionary must be set before speaking symbols"
-  - "preventNextFlush only protects ONE flush operation"
+  - "'@l10n.key more text' is not translated by composition - pass an array of parts instead"
+  - "position index is zero based ([2, 20] -> '3 of 20')"
   - "dontRepeat uses exact string match (case sensitive)"
   - "spellOut mode adds spaces between characters (increases speech time)"
   - "Don't manually set rootNode.muteAudioGuide (service manages it)"
 troubleshooting:
   noSound:
-    - "Check device AudioGuide: framework.ttsService.isDeviceAudioGuideEnabled"
+    - "Set debug.logTts: true; '[ROTOR][TTS] say: ... (active: false)' means isEnabled is false or the screen reader is off"
+    - "Check device AudioGuide: CreateObject('roDeviceInfo').isAudioGuideEnabled()"
     - "Check service enabled: framework.ttsService.isEnabled"
     - "Verify user enabled AudioGuide in Roku device settings (Settings > Accessibility > Audio Guide)"
-    - "Verify roAudioGuide available (not in test environment)"
   wrongPronunciation:
-    - "Update symbol dictionary for locale"
+    - "Add l10n.tts.symbols / roles / states / position for the locale"
     - "Use spellOut: false for regular speech"
     - "Check symbol dictionary has correct mapping"
   interruptions:
@@ -289,7 +312,7 @@ troubleshooting:
     - "Reduce flush: true usage"
     - "Keep messages shorter"
   nativeConflict:
-    - "Service automatically manages rootNode.muteAudioGuide"
+    - "Set framework config allowNativeAudioGuide: false to let the service mute native AudioGuide while it speaks"
     - "Don't manually set muteAudioGuide (let service handle it)"
     - "muteAudioGuide is inherited by all child nodes"
     - "Only one TTS system should be active (custom or native)"
@@ -308,20 +331,19 @@ comparison:
 lifecycle:
   - "Framework creates ttsService during init"
   - "Service creates roDeviceInfo and roAudioGuide instances"
-  - "Service checks roDeviceInfo.isAudioGuideEnabled()"
-  - "If enabled, mute native AudioGuide (rootNode.muteAudioGuide = true)"
-  - "If disabled, service disables itself"
-  - "Widget decorated with tts() method"
-  - "widget.tts() calls ttsService.speak()"
-  - "speak() checks both isEnabled and isDeviceAudioGuideEnabled"
+  - "init() syncs native mute (no permanent disable when screen reader is off)"
+  - "Widget decorated with tts() method (returns the service)"
+  - "widget.tts().speak(config) -> composeSpeech (say/role/state/position)"
+  - "speak() checks isEnabled AND roDeviceInfo.isAudioGuideEnabled() on every call"
   - "Service processes spellOut mode if enabled"
   - "Service checks flush/override/dontRepeat flags"
   - "Service calls audioGuide.Say(text)"
   - "Service tracks lastSpeech for dontRepeat"
-  - "On destroy, unmute native AudioGuide (rootNode.muteAudioGuide = false)"
+  - "On destroy: timer stopped, caches cleared, disable()"
 debugging:
-  - "Debug logs show all TTS operations in debug builds"
-  - "Log format: '[TTS_SERVICE] Speaking: {text} (flush: {bool}, spellOut: {bool})'"
+  - "Logging off by default. Enable: framework config debug.logTts = true, or at runtime ttsService.isLoggingEnabled = true/false"
+  - "Debug builds only (bs_const debug=true): every speak() logs '[ROTOR][TTS] say: {composed phrase} (active: {bool})'"
+  - "Logged even when the screen reader is off (active: false); compiled out of non-debug builds"
   - "Check isEnabled flag for service status"
   - "Inspect symbolDictionary for localization issues"
 performance:
@@ -330,7 +352,7 @@ performance:
   - "Native roAudioGuide optimized by Roku"
   - "dontRepeat reduces unnecessary calls"
   - "Sentence secure prevents speech pile-up"
-  - "200ms Timer node overhead minimal (background polling)"
+  - "300ms one-shot Timer node, runs only while speech is pending"
   - "Debounce reduces actual roAudioGuide.Say() calls"
   - "Service can be globally disabled for silent mode"
 ```
