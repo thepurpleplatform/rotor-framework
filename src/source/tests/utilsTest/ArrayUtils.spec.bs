@@ -150,6 +150,35 @@ namespace tests
             m.assertEqual(key, "two")
         end function
 
+        @it("findInAArrayByKey returns empty string when nothing matches")
+        function _()
+            map = {
+                one: { name: "Alpha" },
+                two: { name: "Beta" }
+            }
+            m.assertEqual(Rotor.Utils.findInAArrayByKey(map, "name", "gamma"), "")
+            m.assertEqual(Rotor.Utils.findInAArrayByKey({}, "name", "alpha"), "")
+        end function
+
+        @it("findInAArrayByKey matches non-string values without case folding")
+        function _()
+            map = {
+                one: { index: 1 },
+                two: { index: 2 }
+            }
+            m.assertEqual(Rotor.Utils.findInAArrayByKey(map, "index", 2), "two")
+            m.assertEqual(Rotor.Utils.findInAArrayByKey(map, "index", 3), "")
+        end function
+
+        @it("findInAArrayByKey does not mutate the searched entries")
+        function _()
+            map = {
+                one: { name: "Alpha" }
+            }
+            m.assertEqual(Rotor.Utils.findInAArrayByKey(map, "name", "ALPHA"), "one")
+            m.assertEqual(map.one.name, "Alpha")
+        end function
+
         @it("findInArrayByKey navigates path within array")
         function _()
             items = [

@@ -3165,5 +3165,192 @@ namespace tests
             m.assertFalse(result.handled)
         end function
 
+        ' ======================================================================
+        ' TEST SUITE: longPressHandler delegation and bubbling
+        ' ======================================================================
+
+        @describe("longPressHandler - delegation and bubbling")
+
+        @it("longPressHandler on focused FocusItem stops bubbling when it returns true")
+        function _()
+            ' Given: Item handler returns true, group also has a handler
+            template = {
+                id: "lphHandledRoot",
+                nodeType: "Group",
+                focusGroup: {
+                    defaultFocusId: "lphHandledItem",
+                    longPressHandler: function(isLongPress as boolean, key as string) as boolean
+                        m.groupSawKey = key
+                        return true
+                    end function
+                },
+                children: [
+                    {
+                        id: "lphHandledItem",
+                        nodeType: "Rectangle",
+                        fields: { width: 100, height: 50 },
+                        focus: {
+                            longPressHandler: function(isLongPress as boolean, key as string) as boolean
+                                m.itemSawKey = key
+                                m.itemSawIsLongPress = isLongPress
+                                return true
+                            end function
+                        }
+                    }
+                ]
+            }
+
+            m.fwInstance.destroy()
+            m.fwInstance = new Rotor.Framework()
+            m.fwInstance.render(template)
+            m.fwInstance.plugins.focus.enableLongPressFeature = false
+
+            widget = m.fwInstance.getWidget("lphHandledItem")
+            widget.setFocus()
+
+            ' When: Long press change is delegated
+            m.fwInstance.plugins.focus.delegateLongPressChanged(true, "right")
+
+            ' Then: Item received it, group did not
+            m.assertEqual(widget.itemSawKey, "right")
+            m.assertTrue(widget.itemSawIsLongPress)
+            groupWidget = m.fwInstance.getWidget("lphHandledRoot")
+            m.assertInvalid(groupWidget.groupSawKey)
+        end function
+
+        @it("longPressHandler bubbles to ancestor group when FocusItem returns false")
+        function _()
+            ' Given: Item handler returns false, group handler is present
+            template = {
+                id: "lphBubbleRoot",
+                nodeType: "Group",
+                focusGroup: {
+                    defaultFocusId: "lphBubbleItem",
+                    longPressHandler: function(isLongPress as boolean, key as string) as boolean
+                        m.groupSawKey = key
+                        m.groupSawIsLongPress = isLongPress
+                        return true
+                    end function
+                },
+                children: [
+                    {
+                        id: "lphBubbleItem",
+                        nodeType: "Rectangle",
+                        fields: { width: 100, height: 50 },
+                        focus: {
+                            longPressHandler: function(isLongPress as boolean, key as string) as boolean
+                                m.itemSawKey = key
+                                return false
+                            end function
+                        }
+                    }
+                ]
+            }
+
+            m.fwInstance.destroy()
+            m.fwInstance = new Rotor.Framework()
+            m.fwInstance.render(template)
+            m.fwInstance.plugins.focus.enableLongPressFeature = false
+
+            widget = m.fwInstance.getWidget("lphBubbleItem")
+            widget.setFocus()
+
+            ' When: Long press ends
+            m.fwInstance.plugins.focus.delegateLongPressChanged(false, "left")
+
+            ' Then: Both item and group received key and isLongPress flag
+            m.assertEqual(widget.itemSawKey, "left")
+            groupWidget = m.fwInstance.getWidget("lphBubbleRoot")
+            m.assertEqual(groupWidget.groupSawKey, "left")
+            m.assertFalse(groupWidget.groupSawIsLongPress)
+        end function
+
+        @it("longPressHandler bubbling stops at the first ancestor group that handles it")
+        function _()
+            ' Given: Item without handler, inner group handles, outer group also has a handler
+            template = {
+                id: "lphOuterGroup",
+                nodeType: "Group",
+                focusGroup: {
+                    defaultFocusId: "lphInnerGroup",
+                    longPressHandler: function(isLongPress as boolean, key as string) as boolean
+                        m.outerSawKey = key
+                        return true
+                    end function
+                },
+                children: [
+                    {
+                        id: "lphInnerGroup",
+                        nodeType: "Group",
+                        focusGroup: {
+                            defaultFocusId: "lphNestedItem",
+                            longPressHandler: function(isLongPress as boolean, key as string) as boolean
+                                m.innerSawKey = key
+                                return true
+                            end function
+                        },
+                        children: [
+                            {
+                                id: "lphNestedItem",
+                                nodeType: "Rectangle",
+                                fields: { width: 100, height: 50 },
+                                focus: {}
+                            }
+                        ]
+                    }
+                ]
+            }
+
+            m.fwInstance.destroy()
+            m.fwInstance = new Rotor.Framework()
+            m.fwInstance.render(template)
+            m.fwInstance.plugins.focus.enableLongPressFeature = false
+
+            widget = m.fwInstance.getWidget("lphNestedItem")
+            widget.setFocus()
+
+            ' When: Long press change is delegated
+            m.fwInstance.plugins.focus.delegateLongPressChanged(true, "down")
+
+            ' Then: Inner group handled it, outer group was not notified
+            innerWidget = m.fwInstance.getWidget("lphInnerGroup")
+            outerWidget = m.fwInstance.getWidget("lphOuterGroup")
+            m.assertEqual(innerWidget.innerSawKey, "down")
+            m.assertInvalid(outerWidget.outerSawKey)
+        end function
+
+        @it("delegateLongPressChanged is a no-op when no handler is registered")
+        function _()
+            ' Given: Item and group without longPressHandler
+            template = {
+                id: "lphNoneRoot",
+                nodeType: "Group",
+                focusGroup: { defaultFocusId: "lphNoneItem" },
+                children: [
+                    {
+                        id: "lphNoneItem",
+                        nodeType: "Rectangle",
+                        fields: { width: 100, height: 50 },
+                        focus: {}
+                    }
+                ]
+            }
+
+            m.fwInstance.destroy()
+            m.fwInstance = new Rotor.Framework()
+            m.fwInstance.render(template)
+            m.fwInstance.plugins.focus.enableLongPressFeature = false
+
+            widget = m.fwInstance.getWidget("lphNoneItem")
+            widget.setFocus()
+
+            ' When: Long press change is delegated with nothing listening
+            m.fwInstance.plugins.focus.delegateLongPressChanged(true, "up")
+
+            ' Then: Focus is untouched
+            focusedWidget = m.fwInstance.plugins.focus.getFocusedWidget()
+            m.assertEqual(focusedWidget.id, "lphNoneItem")
+        end function
+
         end class
 end namespace

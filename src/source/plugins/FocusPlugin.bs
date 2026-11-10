@@ -526,15 +526,12 @@ namespace Rotor
         ' @param {object} widget - The widget instance itself
         '
         sub setupGroup(HID as string, config as object, widget as object)
-            ' Copy essential info to the group-specific config
-            config.id = config.id
-            config.HID = config.HID
             config.widget = widget
             ' Create and configure the Group instance
             newGroup = new Rotor.FocusPluginHelper.GroupClass(config)
             newGroup.focusItemsRef = m.focusItemStack ' Provide reference to focus items
             newGroup.groupsRef = m.groupStack ' Provide reference to other groups
-            m.groupStack.set(config.HID, newGroup) ' Register the new group
+            m.groupStack.set(HID, newGroup) ' Register the new group
         end sub
 
         '
@@ -762,7 +759,7 @@ namespace Rotor
             end if
         end sub
 
-        sub notifyLongPressAtAncestorGroups(isLongPress as boolean, key as string, HID as string, groupHIDs = [] as object)
+        sub notifyLongPressAtAncestorGroups(isLongPress as boolean, key as string, groupHIDs = [] as object)
             ' Notify all ancestor groups
             if groupHIDs.Count() > 0
                 for each groupHID in groupHIDs
@@ -796,7 +793,7 @@ namespace Rotor
             if handled then return
 
             focusChainGroups = m.findAncestorGroups(focused.HID)
-            m.notifyLongPressAtAncestorGroups(isLongPress, key, focused.HID, focusChainGroups)
+            m.notifyLongPressAtAncestorGroups(isLongPress, key, focusChainGroups)
         end sub
 
         function spatialNavigation(focused as object, direction as string, focusItemsHIDlist as object, bypassFocusedCheck = false as boolean) as string
@@ -876,7 +873,7 @@ namespace Rotor
 
             ' Fallback to getFallbackIdentifier if spatial enter didn't find anything
             if newHID = ""
-                newHID = group.getFallbackIdentifier(m.globalFocusHID, direction)
+                newHID = group.getFallbackIdentifier(direction)
             end if
 
             ' Check if we found a FocusItem
@@ -1570,7 +1567,7 @@ namespace Rotor
                 end if
             end function
 
-            function getFallbackIdentifier(globalFocusHID = "" as string, direction = "" as string) as string
+            function getFallbackIdentifier(direction = "" as string) as string
                 HID = ""
                 ' enableSpatialEnter is handled by capturingFocus_recursively using spatialNavigation
                 ' Here we only handle lastFocusedHID and defaultFocusId fallbacks
