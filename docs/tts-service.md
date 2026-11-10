@@ -690,13 +690,23 @@ The mute is synchronized in `init()`, `enable()`, `disable()` and on every activ
 
 ## Debugging
 
-In debug builds (`bs_const` `debug=true`) every `speak()` call logs the composed phrase:
+TTS logging is off by default. Turn it on with the framework config option `debug.logTts`:
+
+```brightscript
+framework = new Rotor.Framework({
+    debug: { logTts: true }
+})
+```
+
+In debug builds (`bs_const` `debug=true`) every `speak()` request then logs the composed phrase:
 
 ```
 [ROTOR][TTS] say: Play, button (active: true)
 ```
 
-`active` is `isEnabled AND device screen reader on`. The line is logged even when the screen reader is off (`active: false`), so the wording can be checked without turning Audio Guide on. The log is compiled out of non-debug builds; there is no runtime switch for it.
+- `active` is `isEnabled AND device screen reader on`. The line is logged even when the screen reader is off (`active: false`), so the wording can be checked without turning Audio Guide on.
+- Runtime switch: `framework.ttsService.isLoggingEnabled = true / false`.
+- The log is compiled out of non-debug builds, where both the config option and the runtime switch have no effect.
 
 ## Comparison with Beam TTS
 

@@ -62,6 +62,8 @@ namespace Rotor
     '**                                       observers when initialization completes.
     '**   - debug (object): Debug configuration options
     '**       - autoSetNodeId (boolean): Automatically set node IDs for debugging (default: false)
+    '**       - logTts (boolean): Log every TTS request in debug builds (default: false);
+    '**                           switchable at runtime with ttsService.isLoggingEnabled
     '**   - plugins (array): List of plugin instances to register with the framework.
     '**                       Default plugins include: FieldsPlugin, FontStylePlugin, FocusPlugin,
     '**                       DispatcherProviderPlugin, ObserverPlugin
@@ -90,7 +92,8 @@ namespace Rotor
 
 
             debug: {
-                autoSetNodeId: false
+                autoSetNodeId: false,
+                logTts: false
             },
 
             plugins: [
@@ -156,6 +159,7 @@ namespace Rotor
 
             m.i18nService.init(m)
             m.ttsService.init(m, m.config.allowNativeAudioGuide)
+            m.ttsService.isLoggingEnabled = m.config.debug?.logTts = true
 
             ' Register plugins
             m.registerPlugins(m.config.plugins)

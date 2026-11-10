@@ -58,6 +58,7 @@ namespace Rotor.ViewBuilder
 
         ' State tracking
         isEnabled = true
+        isLoggingEnabled = false ' debug builds only; set from config.debug.logTts
         allowNativeAudioGuide = true
 
         lastSpeech = ""
@@ -180,7 +181,9 @@ namespace Rotor.ViewBuilder
             isActive = m.isEnabled and m.getIsDeviceAudioGuideEnabled()
             #if debug
                 ' Logged even when the device screen reader is off, so speech can be checked without it
-                ? "[ROTOR][TTS] say: "; m.composeSpeech(config); " (active: "; isActive; ")"
+                if m.isLoggingEnabled
+                    ? "[ROTOR][TTS] say: "; m.composeSpeech(config); " (active: "; isActive; ")"
+                end if
             #end if
             if not isActive then return
             m.syncNativeAudioGuideMute()

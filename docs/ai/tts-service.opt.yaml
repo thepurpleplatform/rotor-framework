@@ -288,7 +288,7 @@ rules:
   - "dontRepeat compares with lastSpeech string AND uses native roAudioGuide parameter"
   - "Only one TTS system active at a time (custom or native)"
 pitfalls:
-  - "No speech while the screen reader is off in device settings (debug log still shows the phrase with active: false)"
+  - "No speech while the screen reader is off in device settings (with debug.logTts the log still shows the phrase with active: false)"
   - "widget.tts({...}) is WRONG - tts() takes no config; use widget.tts().speak({...})"
   - "In unit tests (bs_const unittest) the device check always returns true"
   - "Long messages may be interrupted by user actions"
@@ -299,7 +299,7 @@ pitfalls:
   - "Don't manually set rootNode.muteAudioGuide (service manages it)"
 troubleshooting:
   noSound:
-    - "Check debug log: '[ROTOR][TTS] say: ... (active: false)' means isEnabled is false or the screen reader is off"
+    - "Set debug.logTts: true; '[ROTOR][TTS] say: ... (active: false)' means isEnabled is false or the screen reader is off"
     - "Check device AudioGuide: CreateObject('roDeviceInfo').isAudioGuideEnabled()"
     - "Check service enabled: framework.ttsService.isEnabled"
     - "Verify user enabled AudioGuide in Roku device settings (Settings > Accessibility > Audio Guide)"
@@ -341,8 +341,9 @@ lifecycle:
   - "Service tracks lastSpeech for dontRepeat"
   - "On destroy: timer stopped, caches cleared, disable()"
 debugging:
-  - "Debug builds (bs_const debug=true) log every speak(): '[ROTOR][TTS] say: {composed phrase} (active: {bool})'"
-  - "Logged even when the screen reader is off (active: false); compile-time only, no runtime switch"
+  - "Logging off by default. Enable: framework config debug.logTts = true, or at runtime ttsService.isLoggingEnabled = true/false"
+  - "Debug builds only (bs_const debug=true): every speak() logs '[ROTOR][TTS] say: {composed phrase} (active: {bool})'"
+  - "Logged even when the screen reader is off (active: false); compiled out of non-debug builds"
   - "Check isEnabled flag for service status"
   - "Inspect symbolDictionary for localization issues"
 performance:

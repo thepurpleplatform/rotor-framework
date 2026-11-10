@@ -1689,6 +1689,54 @@ namespace tests
         end function
 
         ' ======================================================================
+        ' TEST SUITE: Logging switch (config.debug.logTts / isLoggingEnabled)
+        ' ======================================================================
+
+        @describe("logging switch")
+
+        @it("logging is off by default")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.assertFalse(ttsService.isLoggingEnabled)
+        end function
+
+        @it("config.debug.logTts turns logging on")
+        function _()
+            m.fwInstance.destroy()
+            m.fwInstance = new Rotor.Framework({ debug: { logTts: true } })
+            m.fwInstance.render(getTtsTestTemplate())
+
+            m.assertTrue(m.fwInstance.ttsService.isLoggingEnabled)
+        end function
+
+        @it("config.debug without logTts keeps logging off")
+        function _()
+            m.fwInstance.destroy()
+            m.fwInstance = new Rotor.Framework({ debug: { autoSetNodeId: true } })
+            m.fwInstance.render(getTtsTestTemplate())
+
+            m.assertFalse(m.fwInstance.ttsService.isLoggingEnabled)
+        end function
+
+        @it("speak works the same with logging switched at runtime")
+        @params(true)
+        @params(false)
+        function _(isLoggingEnabled)
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            ttsService.isLoggingEnabled = isLoggingEnabled
+
+            ttsService.speak({ say: "Play", role: "button" })
+            m.assertEqual(ttsService.pendingSpeech?.textToSpeak, "Play, button")
+
+            ' Requests are logged (not spoken) while the screen reader is off
+            m.setDeviceAudioGuide(ttsService, false)
+            ttsService.stopSpeech()
+            ttsService.pendingSpeech = invalid
+            ttsService.speak({ say: "Silent" })
+            m.assertInvalid(ttsService.pendingSpeech)
+        end function
+
+        ' ======================================================================
         ' Helpers
         ' ======================================================================
 

@@ -34,7 +34,7 @@ framework = new Rotor.Framework({
 | `onReady` | function | No | Callback function invoked after tasks are synced and the render queue is flushed. Called in **global scope** (`GetGlobalAA()`) — i.e. inside `onReady` the `m` scope is the same `m` you have where you instantiate the framework (typically the component's `init()`), so `m.framework`, `m.top`, etc. are reachable. **Only needed when `tasks` are configured** — without tasks the framework instantiates synchronously and is ready immediately. |
 | `readyFieldId` | string | No | Field name to add to the root node that will be set to `true` after tasks are synced and render queue is flushed. Useful for triggering observers. **Only relevant when `tasks` are configured.** |
 | `plugins` | array | No | List of plugin instances to register. Default plugins are automatically included. Custom plugins are not documented yet. |
-| `allowNativeAudioGuide` | boolean | No | Whether to allow native AudioGuide when TTS service is enabled. If `true`, rootNode.muteAudioGuide is **not** set. If `false` (default), native AudioGuide is muted when TTS is enabled. |
+| `allowNativeAudioGuide` | boolean | No | Whether to allow native AudioGuide next to the TTS service. If `true` (default), rootNode.muteAudioGuide is **not** touched. If `false`, native AudioGuide is muted while the TTS service is enabled and the device screen reader is on. |
 | `debug` | object | No | Debug configuration options. |
 
 ### Debug Options
@@ -42,6 +42,7 @@ framework = new Rotor.Framework({
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `debug.autoSetNodeId` | boolean | false | Automatically set node IDs for debugging purposes. |
+| `debug.logTts` | boolean | false | Log every TTS request in debug builds as `[ROTOR][TTS] say: <composed phrase> (active: <bool>)`, also when the screen reader is off. Switchable at runtime with `ttsService.isLoggingEnabled`. Compiled out of non-debug builds. |
 
 ## Task Synchronization
 
