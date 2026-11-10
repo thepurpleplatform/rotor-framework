@@ -105,9 +105,8 @@ namespace Rotor.ViewBuilder
         '
 
         ' @param {object} newProcesses - Process or array of processes to add
-        ' @param {boolean} isHandledRootChild - Whether this is a root child (default: false)
         ' ---------------------------------------------------------------------
-        sub add (newProcesses as object, isHandledRootChild = false as boolean)
+        sub add (newProcesses as object)
 
             processesToAdd = Rotor.Utils.ensureArray(newProcesses)
 

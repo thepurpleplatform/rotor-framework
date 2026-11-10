@@ -324,7 +324,8 @@ namespace Rotor.Utils
 
         while foundIndex = -1 and index < keysCount
             targetValue = aa[keys[index]][key]
-            if (isTypeString = true ? LCase(targetValue) : targetValue) = value
+            if isTypeString then targetValue = LCase(targetValue)
+            if targetValue = value
                 foundIndex = index
             else
                 index++

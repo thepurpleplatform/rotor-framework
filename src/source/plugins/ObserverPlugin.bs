@@ -119,7 +119,7 @@ namespace Rotor
             if config <> invalid and config.Count() > 0 and attachmentId <> invalid
                 observerConfigs = Rotor.Utils.ensureArray(config)
                 for each observerConfig in observerConfigs
-                    m.registerObserver(observerConfig, node, attachmentId, m.helperInterfaceId, listenerScope)
+                    m.registerObserver(observerConfig, node, attachmentId, listenerScope)
                 end for
             end if
         end sub
@@ -133,10 +133,9 @@ namespace Rotor
         ' @param {object} observerConfig - Configuration for the specific observer
         ' @param {object} node - roSGNode being observed
         ' @param {string} attachmentId - Unique ID linking observers to this node
-        ' @param {string} helperInterfaceId - Helper interface field ID
         ' @param {object} listenerScope - Widget scope for callback execution
         '
-        sub registerObserver(observerConfig as object, node as object, attachmentId as string, helperInterfaceId as string, listenerScope as object)
+        sub registerObserver(observerConfig as object, node as object, attachmentId as string, listenerScope as object)
             ' Create observer instance
             newObserver = new Rotor.ObserverPluginHelper.Observer(observerConfig, node, attachmentId, listenerScope, m.pluginKey)
             m.observerStack.set(newObserver.id, newObserver)
@@ -191,9 +190,8 @@ namespace Rotor
         ' @param {object} extraInfo - Additional info from observeFieldScoped
         ' @param {string} fieldId - ID of the field that changed
         ' @param {string} attachmentId - Node attachment ID
-        ' @param {string} pluginKey - Plugin instance key
         '
-        sub observerCallbackRouter(value as dynamic, extraInfo as object, fieldId as string, attachmentId as string, pluginKey as string)
+        sub observerCallbackRouter(value as dynamic, extraInfo as object, fieldId as string, attachmentId as string)
             ' Find all observers interested in this field change
             interestedObservers = m.observerStack.findObserversByAttachmentAndField(attachmentId, fieldId)
 
@@ -306,7 +304,7 @@ namespace Rotor
 
                 ' Execute callback router
                 if plugin <> invalid
-                    plugin.observerCallbackRouter(value, extraInfo, fieldId, attachmentId, pluginKey)
+                    plugin.observerCallbackRouter(value, extraInfo, fieldId, attachmentId)
                 end if
             end if
         end sub
@@ -475,7 +473,7 @@ namespace Rotor
             '
             sub setupField(fieldId as string, value as dynamic, alwaysNotify as boolean)
                 fields = {}
-                fields[m.fieldId] = value
+                fields[fieldId] = value
                 Rotor.Utils.setCustomFields(m.node, fields, value <> invalid, alwaysNotify)
             end sub
 
