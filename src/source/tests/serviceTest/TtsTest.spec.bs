@@ -1072,7 +1072,7 @@ namespace tests
             m.assertFalse(ttsService.isPendingProtected)
         end function
 
-        @describe("long and multi-sentence text handling")
+        @describe("long text handling")
 
         @it("long text over 50 chars forces flush")
         function _()
@@ -1092,21 +1092,40 @@ namespace tests
             m.assertTrue(true)
         end function
 
-        @it("multi-sentence text forces flush")
+        @it("long text over 50 chars is spoken with flush even when flush is false")
         function _()
-            widget = m.fwInstance.getWidget("testLabel")
-            m.assertNotInvalid(widget)
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            fakeAudioGuide = m.createFakeAudioGuide()
+            ttsService.audioGuide = fakeAudioGuide
 
-            ttsService = widget.tts()
-
-            ' Multi-sentence text should force flush
             ttsService.speak({
-                say: "First sentence. Second sentence.",
-                flush: false ' Even with flush=false, multi-sentence forces flush
+                say: "This is a very long text message that exceeds fifty characters for testing purposes",
+                flush: false
             })
+            ttsService.onDebounceTimer()
 
-            ' Test passes if no crash
-            m.assertTrue(true)
+            m.assertEqual(fakeAudioGuide.calls.Count(), 1)
+            m.assertTrue(fakeAudioGuide.calls[0].flush)
+        end function
+
+        @it("a dot in short text does not force flush")
+        @params("Dr. Strange")
+        @params("4.5")
+        @params("First sentence. Second sentence.")
+        function _(text)
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            fakeAudioGuide = m.createFakeAudioGuide()
+            ttsService.audioGuide = fakeAudioGuide
+
+            ttsService.speak({
+                say: text,
+                flush: false
+            })
+            ttsService.onDebounceTimer()
+
+            m.assertEqual(fakeAudioGuide.calls.Count(), 1)
+            m.assertEqual(fakeAudioGuide.calls[0].text, text)
+            m.assertFalse(fakeAudioGuide.calls[0].flush)
         end function
 
         @describe("preventNextFlush with pending speech scenarios")
@@ -1396,6 +1415,305 @@ namespace tests
             ' lastSpeech should be set (speech was executed)
             m.assertEqual(ttsService.lastSpeech, "Protected flush test")
         end function
+
+
+        ' ======================================================================
+        ' TEST SUITE: Phrase composition (say / role / state / position)
+        ' ======================================================================
+
+        @describe("phrase composition")
+
+        @it("plain string say is returned unchanged")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.assertEqual(ttsService.composeSpeech({ say: "Hello world" }), "Hello world")
+        end function
+
+        @it("array parts are joined with a comma and empty parts are skipped")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            result = ttsService.composeSpeech({ say: ["Play", "", invalid, "The Odyssey"] })
+            m.assertEqual(result, "Play, The Odyssey")
+        end function
+
+        @it("array parts can be functions")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            result = ttsService.composeSpeech({
+                say: ["Title", function() as string
+                    return "from function"
+                end function]
+            })
+            m.assertEqual(result, "Title, from function")
+        end function
+
+        @it("role is appended from the default vocabulary")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.assertEqual(ttsService.composeSpeech({ say: "Play", role: "button" }), "Play, button")
+        end function
+
+        @it("unknown role is spoken as given")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.assertEqual(ttsService.composeSpeech({ say: "Volume", role: "slider" }), "Volume, slider")
+        end function
+
+        @it("state is appended")
+        @params(true, "Subtitles, on")
+        @params(false, "Subtitles, off")
+        @params("selected", "Subtitles, selected")
+        @params("loading", "Subtitles, loading")
+        function _(state, expected)
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.assertEqual(ttsService.composeSpeech({ say: "Subtitles", state: state }), expected)
+        end function
+
+        @it("position is converted from a zero based index")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            result = ttsService.composeSpeech({ say: "The Odyssey", position: [2, 20] })
+            m.assertEqual(result, "The Odyssey, 3 of 20")
+        end function
+
+        @it("position alone is a valid phrase")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.assertEqual(ttsService.composeSpeech({ position: [0, 5] }), "1 of 5")
+        end function
+
+        @it("position that is not an [index, count] pair is ignored")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.assertEqual(ttsService.composeSpeech({ say: "Item", position: [1] }), "Item")
+        end function
+
+        @it("say, role, state and position are composed in this order")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            result = ttsService.composeSpeech({
+                say: "Subtitles",
+                role: "button",
+                state: true,
+                position: [1, 4]
+            })
+            m.assertEqual(result, "Subtitles, button, on, 2 of 4")
+        end function
+
+        @it("a part that is exactly an l10n key is translated without context")
+        function _()
+            m.fwInstance.i18nService.setL10n({ buttons: { play: "Lejátszás" } })
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            result = ttsService.composeSpeech({ say: ["@l10n.buttons.play", "@l10n.buttons.missing"], role: "button" })
+            m.assertEqual(result, "Lejátszás, @l10n.buttons.missing, button")
+        end function
+
+        @it("an l10n key inside a longer text is not translated by composition")
+        function _()
+            m.fwInstance.i18nService.setL10n({ buttons: { play: "Lejátszás" } })
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            result = ttsService.composeSpeech({ say: "@l10n.buttons.play now" })
+            m.assertEqual(result, "@l10n.buttons.play now")
+        end function
+
+        @it("l10n.tts overrides the default vocabulary per key")
+        function _()
+            m.fwInstance.i18nService.setL10n({
+                tts: {
+                    position: "{count} / {index}",
+                    roles: { button: "gomb" },
+                    states: { on: "be" }
+                }
+            })
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+
+            m.assertEqual(ttsService.composeSpeech({ say: "A", role: "button", state: true, position: [0, 3] }), "A, gomb, be, 3 / 1")
+            ' Keys missing from l10n.tts keep the built-in English default
+            m.assertEqual(ttsService.composeSpeech({ say: "A", state: false }), "A, off")
+        end function
+
+        @it("speak queues the composed phrase")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            ttsService.speak({ say: "Play", role: "button" })
+            m.assertEqual(ttsService.pendingSpeech?.textToSpeak, "Play, button")
+        end function
+
+        @it("speak without say but with position queues the position")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            ttsService.speak({ position: [4, 10] })
+            m.assertEqual(ttsService.pendingSpeech?.textToSpeak, "5 of 10")
+        end function
+
+        ' ======================================================================
+        ' TEST SUITE: Localized spell-out symbols (l10n.tts.symbols)
+        ' ======================================================================
+
+        @describe("localized spell-out symbols")
+
+        @it("l10n.tts.symbols overrides symbol names per key")
+        function _()
+            m.fwInstance.i18nService.setL10n({ tts: { symbols: { "@": "kukac" } } })
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.assertEqual(ttsService.processSpellOutMode("@#"), "kukac hash")
+        end function
+
+        @it("l10n.tts.symbols is used for email addresses")
+        function _()
+            m.fwInstance.i18nService.setL10n({ tts: { symbols: { "@": "kukac", ".": "pont" } } })
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.assertEqual(ttsService.processSpellOutMode("user@domain.com"), "user kukac domain pont com")
+        end function
+
+        @it("spell-out follows l10n changes")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.fwInstance.i18nService.setL10n({ tts: { symbols: { "#": "kettőskereszt" } } })
+            m.assertEqual(ttsService.processSpellOutMode("#"), "kettőskereszt")
+            m.fwInstance.i18nService.setL10n({})
+            m.assertEqual(ttsService.processSpellOutMode("#"), "hash")
+        end function
+
+        @it("l10n.tts.symbols is applied on top of setSymbolDictionary")
+        function _()
+            m.fwInstance.i18nService.setL10n({ tts: { symbols: { "@": "kukac" } } })
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            ttsService.setSymbolDictionary({ "@": "at sign", "#": "number" })
+            m.assertEqual(ttsService.processSpellOutMode("@#"), "kukac number")
+        end function
+
+        ' ======================================================================
+        ' TEST SUITE: Runtime Audio Guide toggle
+        ' ======================================================================
+
+        @describe("runtime Audio Guide toggle")
+
+        @it("speak is skipped while the device screen reader is off, service stays enabled")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.setDeviceAudioGuide(ttsService, false)
+
+            ttsService.speak({ say: "Not spoken" })
+
+            m.assertInvalid(ttsService.pendingSpeech)
+            m.assertTrue(ttsService.isEnabled)
+        end function
+
+        @it("speak works again when the screen reader is turned on while the app runs")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.setDeviceAudioGuide(ttsService, false)
+            ttsService.speak({ say: "Not spoken" })
+            m.assertInvalid(ttsService.pendingSpeech)
+
+            m.setDeviceAudioGuide(ttsService, true)
+            ttsService.speak({ say: "Spoken" })
+
+            m.assertEqual(ttsService.pendingSpeech?.textToSpeak, "Spoken")
+        end function
+
+        @it("onceKey is not consumed while the screen reader is off")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.setDeviceAudioGuide(ttsService, false)
+
+            ttsService.speak({ say: "Welcome", onceKey: "toggle-once" })
+
+            m.assertFalse(ttsService.skipCache.DoesExist("toggle-once"))
+        end function
+
+        @it("enable and disable only flip isEnabled when the screen reader is off")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            m.setDeviceAudioGuide(ttsService, false)
+
+            ttsService.disable()
+            m.assertFalse(ttsService.isEnabled)
+            ttsService.enable()
+            m.assertTrue(ttsService.isEnabled)
+        end function
+
+        @it("disable clears pending speech")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            fakeAudioGuide = m.createFakeAudioGuide()
+            ttsService.audioGuide = fakeAudioGuide
+            ttsService.speak({ say: "Pending" })
+            m.assertNotInvalid(ttsService.pendingSpeech)
+
+            ttsService.disable()
+
+            m.assertInvalid(ttsService.pendingSpeech)
+            m.assertEqual(fakeAudioGuide.flushCount, 1)
+            m.assertFalse(ttsService.isEnabled)
+        end function
+
+        @it("native AudioGuide is muted only while the service is enabled and the screen reader is on")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            rootNode = m.fwInstance.getRootNode()
+            ttsService.allowNativeAudioGuide = false
+
+            ttsService.enable()
+            m.assertTrue(rootNode.muteAudioGuide)
+
+            ttsService.disable()
+            m.assertFalse(rootNode.muteAudioGuide)
+
+            ' Screen reader off: enabling the service must not mute the native AudioGuide
+            m.setDeviceAudioGuide(ttsService, false)
+            ttsService.enable()
+            m.assertFalse(rootNode.muteAudioGuide)
+
+            ' Screen reader turned on at runtime: the next speak() syncs the mute
+            m.setDeviceAudioGuide(ttsService, true)
+            ttsService.speak({ say: "Sync" })
+            m.assertTrue(rootNode.muteAudioGuide)
+
+            ' The test node outlives the framework instance, hand it back unmuted
+            ttsService.disable()
+            m.assertFalse(rootNode.muteAudioGuide)
+        end function
+
+        @it("native AudioGuide is left alone when allowNativeAudioGuide is true")
+        function _()
+            ttsService = m.fwInstance.getWidget("testLabel").tts()
+            rootNode = m.fwInstance.getRootNode()
+            rootNode.muteAudioGuide = false
+
+            ttsService.enable()
+            ttsService.speak({ say: "Native allowed" })
+
+            m.assertFalse(rootNode.muteAudioGuide)
+        end function
+
+        ' ======================================================================
+        ' Helpers
+        ' ======================================================================
+
+        ' Records Say() / Flush() calls instead of speaking
+        private function createFakeAudioGuide() as object
+            return {
+                calls: [],
+                flushCount: 0,
+                Say: function(text as string, flush as boolean, dontRepeat as boolean) as integer
+                    m.calls.push({ text: text, flush: flush, dontRepeat: dontRepeat })
+                    return m.calls.Count()
+                end function,
+                Flush: sub()
+                    m.flushCount = m.flushCount + 1
+                end sub
+            }
+        end function
+
+        ' Simulates the device screen reader setting (always on in unit tests otherwise)
+        private sub setDeviceAudioGuide(ttsService as object, isOn as boolean)
+            ttsService.testDeviceAudioGuideOn = isOn
+            ttsService.getIsDeviceAudioGuideEnabled = function() as boolean
+                return m.testDeviceAudioGuideOn
+            end function
+        end sub
 
     end class
 end namespace
